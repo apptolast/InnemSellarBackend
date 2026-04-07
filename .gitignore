@@ -1,1 +1,9 @@
 k8s/
+
+# Rust
+target/
+Cargo.lock
+
+# Environment
+.env
+.env.*

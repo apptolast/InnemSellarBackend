@@ -6,7 +6,7 @@ Este repositorio contiene el backend en Rust + PostgreSQL y toda la infraestruct
 de despliegue: Docker, CI/CD, Nginx, migraciones, y scripts de operaciones.
 
 ## Stack tecnologico
-- **Backend**: Rust (framework por decidir: Axum o Actix-web)
+- **Backend**: Rust (Salvo)
 - **Base de datos**: PostgreSQL 16+
 - **ORM/Queries**: SQLx (compile-time checked queries)
 - **Autenticacion**: JWT (access + refresh tokens)
