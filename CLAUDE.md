@@ -65,7 +65,10 @@ El archivo `schema.sql` contiene el esquema completo con 17 tablas:
 - snake_case para funciones, variables, modulos
 - PascalCase para structs y enums
 - Clippy clean: `cargo clippy -- -D warnings` debe pasar sin errores
-- Documentacion con `///` para funciones publicas
+- Documentacion educativa obligatoria: todo item publico lleva `///` en espanol
+  explicando POR QUE se usa cada construccion de Rust (ownership, traits, async, etc.)
+- Los doc comments son material de aprendizaje, no solo referencia de API
+- Generar HTML: `cargo doc --no-deps --open` desde inem-sellar-backend/
 - Error handling con `thiserror` para errores propios, `anyhow` para propagacion
 - Async con tokio runtime
 

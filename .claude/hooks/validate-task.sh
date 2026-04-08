@@ -34,6 +34,12 @@ if ! cargo fmt --check 2>/dev/null; then
   exit 2
 fi
 
+# Verificar que la documentacion compila (detecta links rotos, syntax errors en docs)
+if ! cargo doc --no-deps 2>/dev/null; then
+  echo "cargo doc fallo. Revisa que los doc comments (///) compilen correctamente." >&2
+  exit 2
+fi
+
 # Ejecutar tests
 if ! cargo test 2>/dev/null; then
   echo "cargo test fallo. Corrige los tests antes de completar la tarea." >&2
