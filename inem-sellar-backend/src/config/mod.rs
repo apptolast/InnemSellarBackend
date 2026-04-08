@@ -33,6 +33,17 @@ pub struct AppConfig {
     /// complicando el codigo. Regla practica: si el dato debe vivir tanto como el struct, usa `String`.
     #[serde(default = "default_addr")]
     pub server_addr: String,
+
+    /// Direccion de binding completa del servidor en formato `IP:puerto`.
+    /// Valor por defecto: `0.0.0.0:8080`.
+    ///
+    /// Se lee de la variable de entorno `PORT_ADDR`. Se usa cuando se necesita
+    /// distinguir entre la direccion de escucha del socket TCP (`port_addr`,
+    /// que usa `0.0.0.0` para aceptar todas las interfaces) y la direccion
+    /// publica que se incluye en los logs (`server_addr`, que muestra `localhost`
+    /// para que sea clickable en el terminal durante desarrollo).
+    #[serde(default = "port_addr")]
+    pub port_addr: String,
 }
 
 /// Devuelve la direccion por defecto del servidor.
@@ -46,6 +57,16 @@ pub struct AppConfig {
 /// `"0.0.0.0:8080"` es un `&str` (referencia a texto en el binario), pero necesitamos
 /// un `String` (texto en el heap, owned). `.to_string()` crea esa copia en el heap.
 fn default_addr() -> String {
+    "localhost:8080".to_string()
+}
+
+/// Devuelve la direccion de binding por defecto del servidor.
+///
+/// Misma logica que `default_addr`: serde necesita una funcion, no un literal.
+/// `0.0.0.0` significa "escucha en todas las interfaces de red disponibles",
+/// lo que es necesario dentro de un contenedor Docker para que el trafico
+/// externo pueda llegar al proceso.
+fn port_addr() -> String {
     "0.0.0.0:8080".to_string()
 }
 
