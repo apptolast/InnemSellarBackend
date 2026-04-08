@@ -67,7 +67,7 @@ fn default_addr() -> String {
 /// lo que es necesario dentro de un contenedor Docker para que el trafico
 /// externo pueda llegar al proceso.
 fn port_addr() -> String {
-    "0.0.0.0:8080".to_string()
+    "0.0.0.0:9000".to_string()
 }
 
 impl AppConfig {
