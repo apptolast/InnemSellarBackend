@@ -12,6 +12,6 @@ async fn main() {
     let router = Router::new().get(hello);
     let acceptor = TcpListener::new("0.0.0.0:8080").bind().await;
 
-    tracing::info!("Servidor escuchando en http://0.0.0.0:8080");
+    tracing::info!("Servidor escuchando en http://localhost:8080");
     Server::new(acceptor).serve(router).await;
 }
