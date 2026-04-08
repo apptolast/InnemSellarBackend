@@ -1,3 +1,5 @@
+mod config;
+
 use salvo::prelude::*;
 
 #[handler]
