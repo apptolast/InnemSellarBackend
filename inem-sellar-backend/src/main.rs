@@ -81,7 +81,7 @@ async fn main() {
     // `TcpListener` abre el socket TCP en el puerto 8080 en todas las interfaces
     // de red (0.0.0.0). `.bind().await` completa el binding de forma asincrona.
     // En produccion, Nginx actua como proxy inverso delante de este puerto.
-    let acceptor = TcpListener::new("0.0.0.0:8080").bind().await;
+    let acceptor = TcpListener::new(cfg.port_addr).bind().await;
 
     tracing::info!("Servidor escuchando en http://{}", cfg.server_addr);
 
