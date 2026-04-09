@@ -13,6 +13,7 @@
 
 mod config;
 mod db;
+mod models;
 
 use salvo::prelude::*;
 
