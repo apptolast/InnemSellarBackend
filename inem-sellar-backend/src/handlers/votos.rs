@@ -201,6 +201,47 @@ pub async fn obtener_voto(
     Ok(Json(serde_json::to_value(voto).unwrap_or_default()))
 }
 
+/// PUT /api/v1/votos — Actualizar un voto existente.
+///
+/// Semanticamente distinto de POST: POST crea o actualiza (upsert),
+/// PUT solo actualiza un voto que ya existe. Si el usuario no ha votado
+/// ese contenido, se crea un voto nuevo igualmente (mismo comportamiento
+/// que POST por simplicidad — la tabla usa ON CONFLICT con la PK compuesta).
+///
+/// # Por que tener POST y PUT si hacen lo mismo
+/// En REST, POST = "crear recurso", PUT = "actualizar recurso existente".
+/// Un cliente REST bien diseñado (como la app Flutter) usa POST la primera
+/// vez que vota y PUT cuando cambia su voto. Ambos llegan al mismo repo
+/// porque la BD maneja el upsert, pero la semantica de la API es correcta.
+#[endpoint(tags("Votos"), security(("bearer_auth" = [])))]
+pub async fn actualizar_voto(
+    body: JsonBody<VotarRequest>,
+    depot: &mut Depot,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let id_usuario = *depot
+        .get::<Uuid>("id_usuario")
+        .map_err(|_| AppError::Unauthorized)?;
+
+    if body.tipo_voto != 1 && body.tipo_voto != -1 {
+        return Err(AppError::BadRequest(
+            "tipo_voto debe ser 1 (upvote) o -1 (downvote)".into(),
+        ));
+    }
+
+    let tipo = parsear_tipo_contenido(&body.tipo_contenido)?;
+
+    let repo = depot
+        .obtain::<SeaVotoRepo>()
+        .map_err(|_| AppError::Internal("VotoRepo no disponible".into()))?
+        .clone();
+
+    let voto = repo
+        .votar(id_usuario, tipo, body.id_contenido, body.tipo_voto)
+        .await?;
+
+    Ok(Json(serde_json::to_value(voto).unwrap_or_default()))
+}
+
 /// DELETE /api/v1/votos — Eliminar el voto del usuario sobre un contenido.
 ///
 /// Solo puede eliminar su propio voto — el `id_usuario` se toma del JWT,

@@ -24,6 +24,18 @@ pub trait ReporteRepo: Send + Sync {
         &self,
     ) -> impl std::future::Future<Output = Result<Vec<reporte::Model>, AppError>> + Send;
 
+    /// Obtener un reporte por su UUID.
+    fn obtener_reporte(
+        &self,
+        id: Uuid,
+    ) -> impl std::future::Future<Output = Result<reporte::Model, AppError>> + Send;
+
+    /// Eliminar un reporte (admin).
+    fn eliminar_reporte(
+        &self,
+        id: Uuid,
+    ) -> impl std::future::Future<Output = Result<(), AppError>> + Send;
+
     /// Procesar un reporte: aceptar o rechazar.
     /// Registra quien lo proceso y cuando.
     fn procesar_reporte(
@@ -83,6 +95,26 @@ impl ReporteRepo for SeaReporteRepo {
             .all(&self.db)
             .await
             .map_err(AppError::from_db)
+    }
+
+    async fn obtener_reporte(&self, id: Uuid) -> Result<reporte::Model, AppError> {
+        reporte::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(AppError::from_db)?
+            .ok_or_else(|| AppError::NotFound(format!("Reporte con id {id}")))
+    }
+
+    async fn eliminar_reporte(&self, id: Uuid) -> Result<(), AppError> {
+        let result = reporte::Entity::delete_by_id(id)
+            .exec(&self.db)
+            .await
+            .map_err(AppError::from_db)?;
+
+        if result.rows_affected == 0 {
+            return Err(AppError::NotFound(format!("Reporte con id {id}")));
+        }
+        Ok(())
     }
 
     async fn procesar_reporte(

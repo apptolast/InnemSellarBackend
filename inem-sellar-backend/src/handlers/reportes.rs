@@ -12,7 +12,7 @@
 
 use salvo::oapi::extract::{JsonBody, PathParam};
 use salvo::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::AppError;
@@ -94,6 +94,13 @@ pub struct ProcesarReporteRequest {
     /// `true` = aceptar el reporte (contenido sera moderado).
     /// `false` = rechazar el reporte (contenido se mantiene).
     pub aceptar: bool,
+}
+
+/// Respuesta de confirmacion de operacion exitosa.
+#[derive(Serialize, ToSchema)]
+pub struct MensajeResponse {
+    /// Descripcion textual de la operacion realizada con exito.
+    pub mensaje: String,
 }
 
 // ─── Handlers ────────────────────────────────────────────────────
@@ -207,6 +214,60 @@ pub async fn procesar_reporte(
         .await?;
 
     Ok(Json(serde_json::to_value(reporte).unwrap_or_default()))
+}
+
+/// GET /api/v1/reportes/{id} — Obtener un reporte por su UUID.
+///
+/// Requiere autenticacion. Devuelve todos los datos del reporte incluyendo
+/// el estado de moderacion, el motivo, y quien lo proceso.
+#[endpoint(tags("Reportes"), security(("bearer_auth" = [])))]
+pub async fn obtener_reporte(
+    id: PathParam<String>,
+    depot: &mut Depot,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let _id_usuario = depot
+        .get::<Uuid>("id_usuario")
+        .map_err(|_| AppError::Unauthorized)?;
+
+    let uuid = Uuid::parse_str(&id)
+        .map_err(|_| AppError::BadRequest("ID de reporte no es un UUID valido".into()))?;
+
+    let repo = depot
+        .obtain::<SeaReporteRepo>()
+        .map_err(|_| AppError::Internal("ReporteRepo no disponible".into()))?
+        .clone();
+
+    let reporte = repo.obtener_reporte(uuid).await?;
+
+    Ok(Json(serde_json::to_value(reporte).unwrap_or_default()))
+}
+
+/// DELETE /api/v1/reportes/{id} — Eliminar un reporte (admin).
+///
+/// Elimina fisicamente el reporte de la BD. Solo deberia usarse
+/// por administradores. La verificacion de rol admin es futura.
+#[endpoint(tags("Reportes"), security(("bearer_auth" = [])))]
+pub async fn eliminar_reporte(
+    id: PathParam<String>,
+    depot: &mut Depot,
+) -> Result<Json<MensajeResponse>, AppError> {
+    let _id_usuario = depot
+        .get::<Uuid>("id_usuario")
+        .map_err(|_| AppError::Unauthorized)?;
+
+    let uuid = Uuid::parse_str(&id)
+        .map_err(|_| AppError::BadRequest("ID de reporte no es un UUID valido".into()))?;
+
+    let repo = depot
+        .obtain::<SeaReporteRepo>()
+        .map_err(|_| AppError::Internal("ReporteRepo no disponible".into()))?
+        .clone();
+
+    repo.eliminar_reporte(uuid).await?;
+
+    Ok(Json(MensajeResponse {
+        mensaje: "Reporte eliminado correctamente".into(),
+    }))
 }
 
 // ─── Tests unitarios ──────────────────────────────────────────────
