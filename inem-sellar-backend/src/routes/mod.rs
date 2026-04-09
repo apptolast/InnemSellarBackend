@@ -23,11 +23,11 @@ use crate::middleware;
 /// /api/v1/perfil                            → GET/PUT perfil propio (auth)
 /// /api/v1/usuarios/{id}                     → GET perfil publico
 ///
-/// /api/v1/comunidades                       → GET listar
-/// /api/v1/comunidades/{id}                  → GET obtener
-/// /api/v1/provincias                        → GET listar (?id_comunidad=X)
-/// /api/v1/provincias/{id}                   → GET obtener
-/// /api/v1/provincias/{id}/oficina           → GET oficina SEPE
+/// /api/v1/comunidades                       → GET listar / POST crear (auth)
+/// /api/v1/comunidades/{id}                  → GET obtener / PUT (auth) / DELETE (auth)
+/// /api/v1/provincias                        → GET listar (?id_comunidad=X) / POST crear (auth)
+/// /api/v1/provincias/{id}                   → GET obtener / PUT (auth) / DELETE (auth)
+/// /api/v1/provincias/{id}/oficina           → GET / POST (auth) / PUT (auth) / DELETE (auth)
 ///
 /// /api/v1/ofertas                           → GET listar / POST crear (auth)
 /// /api/v1/ofertas/{id}                      → GET / PUT (auth) / DELETE (auth)
@@ -77,17 +77,49 @@ pub fn crear_router() -> Router {
             .push(
                 Router::with_path("comunidades")
                     .get(geografia::listar_comunidades)
-                    .push(Router::with_path("{id}").get(geografia::obtener_comunidad)),
+                    .push(
+                        Router::new()
+                            .hoop(middleware::auth_middleware)
+                            .post(geografia::crear_comunidad),
+                    )
+                    .push(
+                        Router::with_path("{id}")
+                            .get(geografia::obtener_comunidad)
+                            .push(
+                                Router::new()
+                                    .hoop(middleware::auth_middleware)
+                                    .put(geografia::actualizar_comunidad)
+                                    .delete(geografia::eliminar_comunidad),
+                            ),
+                    ),
             )
             .push(
                 Router::with_path("provincias")
                     .get(geografia::listar_provincias)
                     .push(
+                        Router::new()
+                            .hoop(middleware::auth_middleware)
+                            .post(geografia::crear_provincia),
+                    )
+                    .push(
                         Router::with_path("{id}")
                             .get(geografia::obtener_provincia)
                             .push(
+                                Router::new()
+                                    .hoop(middleware::auth_middleware)
+                                    .put(geografia::actualizar_provincia)
+                                    .delete(geografia::eliminar_provincia),
+                            )
+                            .push(
                                 Router::with_path("oficina")
-                                    .get(geografia::obtener_oficina_por_provincia),
+                                    .get(geografia::obtener_oficina_por_provincia)
+                                    .push(
+                                        Router::new()
+                                            .hoop(middleware::auth_middleware)
+                                            .post(geografia::crear_oficina)
+                                            .put(geografia::actualizar_oficina)
+                                            .delete(geografia::eliminar_oficina),
+                                    ),
                             ),
                     ),
             )
@@ -153,6 +185,7 @@ pub fn crear_router() -> Router {
                     .hoop(middleware::auth_middleware)
                     .get(votos::obtener_voto)
                     .post(votos::votar)
+                    .put(votos::actualizar_voto)
                     .delete(votos::eliminar_voto),
             )
             // ── Reportes ──────────────────────────────────────────
@@ -161,7 +194,12 @@ pub fn crear_router() -> Router {
                     .hoop(middleware::auth_middleware)
                     .post(reportes::crear_reporte)
                     .push(Router::with_path("pendientes").get(reportes::listar_reportes_pendientes))
-                    .push(Router::with_path("{id}").put(reportes::procesar_reporte)),
+                    .push(
+                        Router::with_path("{id}")
+                            .get(reportes::obtener_reporte)
+                            .put(reportes::procesar_reporte)
+                            .delete(reportes::eliminar_reporte),
+                    ),
             )
             // ── Prestaciones ──────────────────────────────────────
             .push(
