@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["auth_repo","geografia_repo","oferta_repo"]};
+window.SIDEBAR_ITEMS = {"mod":["auth_repo","configuracion_repo","consejo_repo","curso_repo","geografia_repo","oferta_repo","prestacion_repo","reporte_repo","usuario_repo","voto_repo"]};

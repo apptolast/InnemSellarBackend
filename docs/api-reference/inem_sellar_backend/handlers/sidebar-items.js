@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["auth","geografia","ofertas"]};
+window.SIDEBAR_ITEMS = {"mod":["auth","configuracion","consejos","cursos","geografia","ofertas","prestaciones","reportes","usuarios","votos"]};

@@ -1,22 +1,36 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Crea el router completo de la API."><title>crear_router in inem_sellar_backend::routes - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="inem_sellar_backend" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.1 (e408947bf 2026-03-25)" data-channel="1.94.1" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc fn"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">crear_router</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../inem_sellar_backend/index.html">inem_<wbr>sellar_<wbr>backend</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">crear_<wbr>router</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#por-que-id-y-no-id-o-id" title="Por que `{id}` y no `:id` o `&#60;id&#62;`">Por que <code>{id}</code> y no <code>:id</code> o <code>&lt;id&gt;</code></a></li></ul></section><div id="rustdoc-modnav"><h2><a href="index.html">In inem_<wbr>sellar_<wbr>backend::<wbr>routes</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">inem_sellar_backend</a>::<wbr><a href="index.html">routes</a></div><h1>Function <span class="fn">crear_<wbr>router</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/inem_sellar_backend/routes/mod.rs.html#50-109">Source</a> </span></div><pre class="rust item-decl"><code>pub fn crear_router() -&gt; Router</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Crea el router completo de la API.</p>
-<p>Estructura de URLs:</p>
-<div class="example-wrap"><pre class="language-text"><code>/                                         → hello (health check)
-/api/v1/auth/registro                     → POST registro
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Crea el router completo de la API."><title>crear_router in inem_sellar_backend::routes - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="inem_sellar_backend" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.1 (e408947bf 2026-03-25)" data-channel="1.94.1" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc fn"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">crear_router</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../inem_sellar_backend/index.html">inem_<wbr>sellar_<wbr>backend</a><span class="version">0.1.0</span></h2></div><div class="sidebar-elems"><div id="rustdoc-modnav"><h2><a href="index.html">In inem_<wbr>sellar_<wbr>backend::<wbr>routes</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">inem_sellar_backend</a>::<wbr><a href="index.html">routes</a></div><h1>Function <span class="fn">crear_<wbr>router</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/inem_sellar_backend/routes/mod.rs.html#53-207">Source</a> </span></div><pre class="rust item-decl"><code>pub fn crear_router() -&gt; Router</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Crea el router completo de la API.</p>
+<p>Estructura de URLs (~40 endpoints):</p>
+<div class="example-wrap"><pre class="language-text"><code>/api/v1/auth/registro                     → POST registro
 /api/v1/auth/login                        → POST login
 /api/v1/auth/refrescar                    → POST refrescar token
-/api/v1/auth/logout                       → POST logout (auth requerida)
+/api/v1/auth/logout                       → POST logout (auth)
+
+/api/v1/perfil                            → GET/PUT perfil propio (auth)
+/api/v1/usuarios/{id}                     → GET perfil publico
+
 /api/v1/comunidades                       → GET listar
-/api/v1/comunidades/{id}                  → GET obtener por id
+/api/v1/comunidades/{id}                  → GET obtener
 /api/v1/provincias                        → GET listar (?id_comunidad=X)
-/api/v1/provincias/{id}                   → GET obtener por id
+/api/v1/provincias/{id}                   → GET obtener
 /api/v1/provincias/{id}/oficina           → GET oficina SEPE
-/api/v1/ofertas                           → GET listar (publico)
-/api/v1/ofertas/{id}                      → GET obtener (publico)
-/api/v1/ofertas                           → POST crear (auth)
-/api/v1/ofertas/{id}                      → PUT actualizar (auth, solo autor)
-/api/v1/ofertas/{id}                      → DELETE eliminar (auth, solo autor)</code></pre></div><h2 id="por-que-id-y-no-id-o-id"><a class="doc-anchor" href="#por-que-id-y-no-id-o-id">§</a>Por que <code>{id}</code> y no <code>:id</code> o <code>&lt;id&gt;</code></h2>
-<p>Salvo v0.76+ usa la sintaxis <code>{nombre}</code> para path params.
-<code>:id</code> es de Express/Actix, <code>&lt;id&gt;</code> era la sintaxis antigua de Salvo.
-<code>{id:num}</code> restringiria a numeros, pero no lo usamos porque
-nuestro param es i32 y la conversion falla con 400 si no es numero.</p>
-</div></details></section></div></main></body></html>
+
+/api/v1/ofertas                           → GET listar / POST crear (auth)
+/api/v1/ofertas/{id}                      → GET / PUT (auth) / DELETE (auth)
+
+/api/v1/consejos                          → GET listar / POST crear (auth)
+/api/v1/consejos/{id}                     → GET / PUT (auth) / DELETE (auth)
+
+/api/v1/cursos                            → GET listar / POST crear (auth)
+/api/v1/cursos/{id}                       → GET / PUT (auth) / DELETE (auth)
+
+/api/v1/votos                             → GET / POST / DELETE (auth)
+
+/api/v1/reportes                          → POST crear (auth)
+/api/v1/reportes/pendientes               → GET listar (auth/admin)
+/api/v1/reportes/{id}                     → PUT procesar (auth/admin)
+
+/api/v1/prestaciones                      → GET listar / POST crear (auth/admin)
+/api/v1/prestaciones/{id}                 → GET / PUT (auth/admin) / DELETE (auth/admin)
+
+/api/v1/configuracion                     → GET listar / POST crear (auth/admin)
+/api/v1/configuracion/{clave}             → GET / PUT (auth/admin) / DELETE (auth/admin)</code></pre></div></div></details></section></div></main></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["ActualizarPerfilDto","SeaUsuarioRepo"],"trait":["UsuarioRepo"]};
