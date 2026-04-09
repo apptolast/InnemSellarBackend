@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["auth_repo","geografia_repo","oferta_repo"]};

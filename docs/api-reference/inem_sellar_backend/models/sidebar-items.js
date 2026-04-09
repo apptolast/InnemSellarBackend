@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["comunidad_autonoma","configuracion_aplicacion","consejo","consejo_provincia","curso","curso_provincia","enums","oferta_empleo","oferta_provincia","oficina_sepe","prestacion","proveedor_autenticacion","provincia","reporte","token_refresco","usuario","voto"]};

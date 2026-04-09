@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["ActualizarOfertaDto","CrearOfertaDto","SeaOfertaRepo"],"trait":["OfertaRepo"]};

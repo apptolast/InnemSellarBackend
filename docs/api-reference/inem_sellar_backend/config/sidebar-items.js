@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["default_addr","default_jwt_expiracion","port_addr"],"struct":["AppConfig"]};
