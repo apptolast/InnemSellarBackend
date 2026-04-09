@@ -1,7 +1,4 @@
 #![warn(missing_docs)]
-// Entidades y variantes de error estan definidas para uso futuro inmediato.
-// Este allow se eliminara cuando la API este 100% implementada.
-#![allow(dead_code)]
 //! Backend de InemSellar — API REST para la app de ayuda a desempleados en Espana.
 //!
 //! # Arquitectura
@@ -34,7 +31,10 @@ use salvo::oapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use salvo::oapi::{Info, OpenApi};
 use salvo::prelude::*;
 
-use crate::repositories::{SeaAuthRepo, SeaGeografiaRepo, SeaOfertaRepo};
+use crate::repositories::{
+    SeaAuthRepo, SeaConfiguracionRepo, SeaConsejoRepo, SeaCursoRepo, SeaGeografiaRepo,
+    SeaOfertaRepo, SeaPrestacionRepo, SeaReporteRepo, SeaUsuarioRepo, SeaVotoRepo,
+};
 use crate::services::AuthService;
 
 /// Handler basico que responde con "Hello World".
@@ -99,6 +99,13 @@ async fn main() {
     let geo_repo = SeaGeografiaRepo::new(db.clone());
     let auth_repo = SeaAuthRepo::new(db.clone());
     let oferta_repo = SeaOfertaRepo::new(db.clone());
+    let consejo_repo = SeaConsejoRepo::new(db.clone());
+    let curso_repo = SeaCursoRepo::new(db.clone());
+    let voto_repo = SeaVotoRepo::new(db.clone());
+    let reporte_repo = SeaReporteRepo::new(db.clone());
+    let prestacion_repo = SeaPrestacionRepo::new(db.clone());
+    let configuracion_repo = SeaConfiguracionRepo::new(db.clone());
+    let usuario_repo = SeaUsuarioRepo::new(db.clone());
 
     // Inyectamos todos los servicios y repos en el Depot de Salvo.
     //
@@ -114,6 +121,13 @@ async fn main() {
         .hoop(affix_state::inject(geo_repo))
         .hoop(affix_state::inject(auth_repo))
         .hoop(affix_state::inject(oferta_repo))
+        .hoop(affix_state::inject(consejo_repo))
+        .hoop(affix_state::inject(curso_repo))
+        .hoop(affix_state::inject(voto_repo))
+        .hoop(affix_state::inject(reporte_repo))
+        .hoop(affix_state::inject(prestacion_repo))
+        .hoop(affix_state::inject(configuracion_repo))
+        .hoop(affix_state::inject(usuario_repo))
         .push(routes::crear_router());
 
     // ── Documentacion OpenAPI / Swagger UI ──────────────────────────────────

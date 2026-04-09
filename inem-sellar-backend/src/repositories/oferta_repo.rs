@@ -34,6 +34,9 @@ pub struct ActualizarOfertaDto {
     pub telefono_contacto: Option<String>,
     pub email_contacto: Option<String>,
     pub web_contacto: Option<String>,
+    /// Si se envia, reemplaza las provincias asociadas.
+    /// `None` = no tocar provincias. `Some(vec![])` = eliminar todas.
+    pub provincias: Option<Vec<i32>>,
 }
 
 /// Contrato de acceso a datos de ofertas.
@@ -195,7 +198,28 @@ impl OfertaRepo for SeaOfertaRepo {
             active.web_contacto = Set(datos.web_contacto);
         }
 
-        active.update(&self.db).await.map_err(AppError::from_db)
+        let resultado = active.update(&self.db).await.map_err(AppError::from_db)?;
+
+        // Actualizar provincias si se enviaron
+        if let Some(provincias) = datos.provincias {
+            // Borrar las asociaciones existentes
+            oferta_provincia::Entity::delete_many()
+                .filter(oferta_provincia::Column::IdOferta.eq(id))
+                .exec(&self.db)
+                .await
+                .map_err(AppError::from_db)?;
+
+            // Insertar las nuevas asociaciones
+            for id_prov in provincias {
+                let vinculo = oferta_provincia::ActiveModel {
+                    id_oferta: Set(id),
+                    id_provincia: Set(id_prov),
+                };
+                vinculo.insert(&self.db).await.map_err(AppError::from_db)?;
+            }
+        }
+
+        Ok(resultado)
     }
 
     async fn eliminar_oferta(&self, id: Uuid) -> Result<(), AppError> {

@@ -1,7 +1,21 @@
 pub mod auth_repo;
+pub mod configuracion_repo;
+pub mod consejo_repo;
+pub mod curso_repo;
 pub mod geografia_repo;
 pub mod oferta_repo;
+pub mod prestacion_repo;
+pub mod reporte_repo;
+pub mod usuario_repo;
+pub mod voto_repo;
 
 pub use auth_repo::{AuthRepo, SeaAuthRepo};
+pub use configuracion_repo::{ConfiguracionRepo, SeaConfiguracionRepo};
+pub use consejo_repo::{ConsejoRepo, SeaConsejoRepo};
+pub use curso_repo::{CursoRepo, SeaCursoRepo};
 pub use geografia_repo::{GeografiaRepo, SeaGeografiaRepo};
 pub use oferta_repo::{OfertaRepo, SeaOfertaRepo};
+pub use prestacion_repo::{PrestacionRepo, SeaPrestacionRepo};
+pub use reporte_repo::{ReporteRepo, SeaReporteRepo};
+pub use usuario_repo::{SeaUsuarioRepo, UsuarioRepo};
+pub use voto_repo::{SeaVotoRepo, VotoRepo};

@@ -62,6 +62,9 @@ pub struct ActualizarOfertaRequest {
     pub email_contacto: Option<String>,
     /// Nueva web de contacto.
     pub web_contacto: Option<String>,
+    /// Nuevas provincias asociadas. Si se envia, reemplaza las existentes.
+    /// No enviar este campo = no tocar provincias. Enviar `[]` = eliminar todas.
+    pub provincias: Option<Vec<i32>>,
 }
 
 /// Respuesta paginada de listado de ofertas.
@@ -224,6 +227,7 @@ pub async fn actualizar_oferta(
         telefono_contacto: body.telefono_contacto.clone(),
         email_contacto: body.email_contacto.clone(),
         web_contacto: body.web_contacto.clone(),
+        provincias: body.provincias.clone(),
     };
 
     let oferta = repo.actualizar_oferta(uuid, dto).await?;
