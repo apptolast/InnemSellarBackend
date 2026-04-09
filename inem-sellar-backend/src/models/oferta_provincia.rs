@@ -1,26 +1,42 @@
-// src/models/oferta_provincia.rs
-//
-// Tabla: ofertas_provincias (relacion N:M entre ofertas_empleo y provincias)
-// CONCEPTO NUEVO: tabla de union sin id propio (PK compuesta)
-//
-// Este tipo de tabla se llama "tabla de union" o "tabla pivote".
-// No tiene campos propios — solo conecta dos entidades.
-// Una oferta puede estar en multiples provincias, y una provincia
-// puede tener multiples ofertas.
-
+use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use uuid::Uuid;
 
-/// Relacion N:M entre ofertas de empleo y provincias.
-///
-/// No tiene `id` propio — la PK es la combinacion (id_oferta, id_provincia).
-/// No tiene timestamps porque la relacion no se "actualiza", solo se crea o elimina.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct OfertaProvincia {
-    /// FK a ofertas_empleo — NOT NULL
+/// Tabla de union N:M — PK compuesta (id_oferta + id_provincia)
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "ofertas_provincias")]
+pub struct Model {
+    #[sea_orm(primary_key, auto_increment = false)]
     pub id_oferta: Uuid,
-
-    /// FK a provincias — NOT NULL
+    #[sea_orm(primary_key, auto_increment = false)]
     pub id_provincia: i32,
 }
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::oferta_empleo::Entity",
+        from = "Column::IdOferta",
+        to = "super::oferta_empleo::Column::Id"
+    )]
+    OfertaEmpleo,
+    #[sea_orm(
+        belongs_to = "super::provincia::Entity",
+        from = "Column::IdProvincia",
+        to = "super::provincia::Column::Id"
+    )]
+    Provincia,
+}
+
+impl Related<super::oferta_empleo::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::OfertaEmpleo.def()
+    }
+}
+
+impl Related<super::provincia::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Provincia.def()
+    }
+}
+
+impl ActiveModelBehavior for ActiveModel {}

@@ -1,9 +1,12 @@
 #![warn(missing_docs)]
+// Entidades y variantes de error estan definidas para uso futuro inmediato.
+// Este allow se eliminara cuando la API este 100% implementada.
+#![allow(dead_code)]
 //! Backend de InemSellar — API REST para la app de ayuda a desempleados en Espana.
 //!
 //! # Arquitectura
-//! Este crate usa [Salvo](https://salvo.rs) como framework web, SQLx para acceso
-//! a PostgreSQL, y JWT para autenticacion. Cada modulo incluye documentacion
+//! Este crate usa [Salvo](https://salvo.rs) como framework web, SeaORM como ORM
+//! para PostgreSQL, y JWT para autenticacion. Cada modulo incluye documentacion
 //! educativa que explica los conceptos de Rust utilizados.
 //!
 //! # Como generar la documentacion en HTML
@@ -13,9 +16,16 @@
 
 mod config;
 mod db;
+mod errors;
+mod handlers;
 mod models;
+mod repositories;
+mod routes;
 
+use salvo::affix_state;
 use salvo::prelude::*;
+
+use crate::repositories::SeaGeografiaRepo;
 
 /// Handler basico que responde con "Hello World".
 ///
@@ -64,20 +74,21 @@ async fn main() {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    // Creamos el pool de conexiones a PostgreSQL.
-    // `&cfg` presta la config sin transferir ownership: `cfg` sigue siendo
-    // accesible despues de esta llamada. Ver `db::init_pool` para mas detalle.
-    // `_pool` con guion bajo indica que la variable existe pero aun no se usa
-    // directamente en los handlers (se integrara cuando se implementen los
-    // primeros endpoints con acceso a base de datos).
-    // Sin el guion bajo, `cargo clippy` emitira una advertencia de variable no usada.
-    let _pool = db::init_pool(&cfg).await;
+    // Creamos la conexion a PostgreSQL via SeaORM.
+    // SeaORM gestiona el pool internamente (usa SQLx por debajo).
+    let db = db::init_db(&cfg).await;
 
-    // Definimos el arbol de rutas de la API.
-    // `Router::new()` crea un router raiz. `.get(hello)` registra el handler
-    // `hello` para peticiones GET a "/". En Salvo, los routers se componen
-    // igual que en go_router de Flutter: rutas anidadas con `.push()`.
-    let router = Router::new().get(hello);
+    // Creamos los repositorios, inyectando la conexion.
+    // `db.clone()` es barato — DatabaseConnection usa Arc internamente.
+    let geo_repo = SeaGeografiaRepo::new(db.clone());
+
+    // Construimos el arbol de rutas de la API.
+    // `.hoop(affix_state::inject(geo_repo))` inyecta el repositorio
+    // en el Depot de Salvo — similar a Provider en Flutter.
+    let router = Router::new()
+        .get(hello)
+        .hoop(affix_state::inject(geo_repo))
+        .push(routes::crear_router());
 
     // `TcpListener` abre el socket TCP en el puerto 8080 en todas las interfaces
     // de red (0.0.0.0). `.bind().await` completa el binding de forma asincrona.

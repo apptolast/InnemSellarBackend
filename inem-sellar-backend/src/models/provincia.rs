@@ -1,34 +1,43 @@
-// src/models/provincia.rs
-//
-// Tabla: provincias (52 registros, codigos INE 1-52)
-
-use chrono::{DateTime, Utc};
+use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
-/// Representa una provincia espanola.
-///
-/// # Nota sobre `id`
-/// A diferencia de otras tablas que usan SERIAL (auto-incremento),
-/// aqui el `id` es INTEGER con valores fijos del INE (1-52).
-/// Se insertan manualmente en el seeding, no los genera PostgreSQL.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Provincia {
-    /// INTEGER PRIMARY KEY — codigo INE (1-52), NO auto-generado
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "provincias")]
+pub struct Model {
+    /// INTEGER PK — codigo INE, NO auto_increment (se inserta manualmente)
+    #[sea_orm(primary_key, auto_increment = false)]
     pub id: i32,
-
-    /// Nombre de la provincia (ej: "Madrid", "Barcelona")
     pub nombre: Option<String>,
-
-    /// FK a comunidades_autonomas — tiene NOT NULL en schema,
-    /// por eso es i32 directo (no Option<i32>).
-    /// Cuando un campo tiene NOT NULL, la BD garantiza que siempre
-    /// tendra valor, asi que no necesitamos Option.
     pub id_comunidad: i32,
-
-    /// Ruta al asset del logo provincial en el frontend Flutter
     pub logo_asset: Option<String>,
-
-    pub creado_en: Option<DateTime<Utc>>,
-    pub actualizado_en: Option<DateTime<Utc>>,
+    pub creado_en: Option<DateTimeWithTimeZone>,
+    pub actualizado_en: Option<DateTimeWithTimeZone>,
 }
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    /// Provincia pertenece a una ComunidadAutonoma (N:1)
+    #[sea_orm(
+        belongs_to = "super::comunidad_autonoma::Entity",
+        from = "Column::IdComunidad",
+        to = "super::comunidad_autonoma::Column::Id"
+    )]
+    ComunidadAutonoma,
+    /// Provincia tiene una OficinaSepe (1:1)
+    #[sea_orm(has_one = "super::oficina_sepe::Entity")]
+    OficinaSepe,
+}
+
+impl Related<super::comunidad_autonoma::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::ComunidadAutonoma.def()
+    }
+}
+
+impl Related<super::oficina_sepe::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::OficinaSepe.def()
+    }
+}
+
+impl ActiveModelBehavior for ActiveModel {}

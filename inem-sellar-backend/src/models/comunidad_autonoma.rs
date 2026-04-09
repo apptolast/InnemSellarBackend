@@ -1,57 +1,60 @@
 // src/models/comunidad_autonoma.rs
 //
-// Tabla: comunidades_autonomas (19 registros: 17 CCAA + Ceuta + Melilla)
+// Entidad SeaORM para la tabla comunidades_autonomas.
 //
-// PRIMER MODELO DEL PROYECTO — aqui se explican los conceptos base
-// que se repiten en todos los demas modelos.
+// CAMBIO CLAVE vs version anterior:
+//   Antes: struct ComunidadAutonoma con #[derive(FromRow)]
+//   Ahora: struct Model con #[derive(DeriveEntityModel)]
+//
+// En SeaORM, cada entidad tiene:
+//   - `Model` (struct con los datos — lo que antes era ComunidadAutonoma)
+//   - `Entity` (tipo para hacer queries — generado automaticamente)
+//   - `Column` (enum con los nombres de columna — generado automaticamente)
+//   - `ActiveModel` (para inserts/updates — generado automaticamente)
+//   - `Relation` (enum con relaciones a otras tablas — lo defines tu)
+//
+// Para hacer queries, usas Entity:
+//   comunidad_autonoma::Entity::find().all(&db).await
+// En vez de:
+//   sqlx::query_as::<_, ComunidadAutonoma>("SELECT * FROM ...").fetch_all(&pool).await
 
-use chrono::{DateTime, Utc};
+use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
-/// Representa una Comunidad Autonoma de Espana.
-///
-/// # Por que `#[derive(FromRow)]`
-/// `FromRow` viene de SQLx. Cuando haces una query como:
-/// ```ignore
-/// sqlx::query_as::<_, ComunidadAutonoma>("SELECT * FROM comunidades_autonomas")
-/// ```
-/// SQLx toma cada fila del resultado y la convierte en un `ComunidadAutonoma`.
-/// Para ello, busca columnas con el MISMO NOMBRE que los campos del struct.
-/// Si un nombre no coincide, obtienes error en COMPILACION, no en runtime.
-///
-/// # Por que `Serialize` + `Deserialize`
-/// - `Serialize`: convierte el struct a JSON para enviarlo al frontend Flutter.
-/// - `Deserialize`: convierte JSON del cliente en este struct.
-///   Para una tabla de referencia como esta, `Deserialize` se usaria en un
-///   endpoint de admin que permita editar datos de una comunidad.
-///
-/// # Por que `Debug` y `Clone`
-/// - `Debug`: permite imprimir el struct en logs con `{:?}`.
-/// - `Clone`: permite duplicar el struct. Rust usa ownership — sin `Clone`,
-///   al pasar el struct a una funcion, pierdes acceso al original.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ComunidadAutonoma {
-    /// SERIAL PRIMARY KEY → i32 (siempre tiene valor, nunca Option)
+/// # Por que `DeriveEntityModel`
+/// Genera automaticamente Entity, Column, PrimaryKey y ActiveModel.
+/// Es como si SeaORM escribiera ~200 lineas de codigo por ti.
+/// `table_name` debe coincidir con el nombre de la tabla en PostgreSQL.
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "comunidades_autonomas")]
+pub struct Model {
+    /// `primary_key` indica que esta columna es la PK.
+    /// `auto_increment = true` porque es SERIAL en PostgreSQL.
+    #[sea_orm(primary_key)]
     pub id: i32,
-
-    /// TEXT UNIQUE — nullable en schema (no tiene NOT NULL)
     pub nombre: Option<String>,
-
-    /// Nombre del servicio de empleo autonomico (ej: "SAE", "SOC", "Lanbide")
     pub nombre_servicio_empleo: Option<String>,
-
-    /// Web del servicio de empleo autonomico
     pub web_servicio_empleo: Option<String>,
-
-    /// Enlace para sellado/renovacion de demanda de empleo
     pub url_sellado: Option<String>,
-
-    /// TIMESTAMPTZ DEFAULT now() → Option<DateTime<Utc>>
-    /// Tiene DEFAULT en PostgreSQL, pero sigue siendo nullable.
-    /// DateTime<Utc> es un timestamp con zona horaria UTC.
-    pub creado_en: Option<DateTime<Utc>>,
-
-    /// Se actualiza automaticamente via trigger trg_comunidades_actualizado
-    pub actualizado_en: Option<DateTime<Utc>>,
+    pub creado_en: Option<DateTimeWithTimeZone>,
+    pub actualizado_en: Option<DateTimeWithTimeZone>,
 }
+
+/// Relaciones con otras tablas.
+/// ComunidadAutonoma tiene muchas Provincias (1:N).
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    #[sea_orm(has_many = "super::provincia::Entity")]
+    Provincias,
+}
+
+/// Implementa la relacion inversa para que SeaORM pueda hacer JOINs.
+impl Related<super::provincia::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Provincias.def()
+    }
+}
+
+/// ActiveModelBehavior permite hooks de ciclo de vida (before_save, etc.)
+/// Lo dejamos vacio = comportamiento por defecto.
+impl ActiveModelBehavior for ActiveModel {}

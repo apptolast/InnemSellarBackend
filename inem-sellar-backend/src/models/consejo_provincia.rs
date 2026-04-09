@@ -1,18 +1,41 @@
-// src/models/consejo_provincia.rs
-//
-// Tabla: consejos_provincias (relacion N:M)
-// Sin filas = el consejo es nacional (aplica a toda Espana)
-
+use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use uuid::Uuid;
 
-/// Relacion N:M entre consejos y provincias.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct ConsejoProvincia {
-    /// FK a consejos — NOT NULL
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "consejos_provincias")]
+pub struct Model {
+    #[sea_orm(primary_key, auto_increment = false)]
     pub id_consejo: Uuid,
-
-    /// FK a provincias — NOT NULL
+    #[sea_orm(primary_key, auto_increment = false)]
     pub id_provincia: i32,
 }
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::consejo::Entity",
+        from = "Column::IdConsejo",
+        to = "super::consejo::Column::Id"
+    )]
+    Consejo,
+    #[sea_orm(
+        belongs_to = "super::provincia::Entity",
+        from = "Column::IdProvincia",
+        to = "super::provincia::Column::Id"
+    )]
+    Provincia,
+}
+
+impl Related<super::consejo::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Consejo.def()
+    }
+}
+
+impl Related<super::provincia::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Provincia.def()
+    }
+}
+
+impl ActiveModelBehavior for ActiveModel {}

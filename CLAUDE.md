@@ -8,7 +8,8 @@ de despliegue: Docker, CI/CD, Nginx, migraciones, y scripts de operaciones.
 ## Stack tecnologico
 - **Backend**: Rust (Salvo)
 - **Base de datos**: PostgreSQL 16+
-- **ORM/Queries**: SQLx (compile-time checked queries)
+- **ORM**: SeaORM (async ORM sobre SQLx, con query builder y entidades tipadas)
+- **Arquitectura**: Repository pattern con traits (interfaces) como contratos
 - **Autenticacion**: JWT (access + refresh tokens)
 - **Contenedores**: Docker + docker-compose
 - **Proxy reverso**: Nginx
@@ -23,7 +24,7 @@ de despliegue: Docker, CI/CD, Nginx, migraciones, y scripts de operaciones.
 - Type check: `cargo check`
 - Docker build: `docker compose build`
 - Docker up: `docker compose up -d`
-- Migraciones: `sqlx migrate run`
+- Migraciones: `sea-orm-cli migrate up`
 - Seed: `cargo run --bin seed`
 
 ## Estructura del proyecto

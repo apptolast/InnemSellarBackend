@@ -1,45 +1,41 @@
-// src/models/consejo.rs
-//
-// Tabla: consejos (tips/consejos escritos por usuarios)
-
-use chrono::{DateTime, Utc};
+use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use uuid::Uuid;
 
 use super::enums::EstadoModeracion;
 
-/// Consejo o tip publicado por un usuario de la comunidad.
-///
-/// Si no tiene filas en `consejos_provincias`, el consejo es nacional
-/// (aplica a toda Espana). Si tiene filas, aplica solo a esas provincias.
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Consejo {
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+#[sea_orm(table_name = "consejos")]
+pub struct Model {
+    #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
-
-    /// FK a usuarios — NOT NULL
     pub id_autor: Uuid,
-
     pub titulo: Option<String>,
-
-    /// Texto completo del consejo
     pub cuerpo: Option<String>,
-
-    /// Enlace adicional opcional
     pub web: Option<String>,
-
-    /// URL de imagen ilustrativa
     pub imagen_url: Option<String>,
-
     pub activo: Option<bool>,
-
-    /// Contadores actualizados por trigger
     pub cantidad_upvotes: Option<i32>,
     pub cantidad_downvotes: Option<i32>,
     pub cantidad_reportes: Option<i32>,
-
     pub estado_moderacion: Option<EstadoModeracion>,
-
-    pub creado_en: Option<DateTime<Utc>>,
-    pub actualizado_en: Option<DateTime<Utc>>,
+    pub creado_en: Option<DateTimeWithTimeZone>,
+    pub actualizado_en: Option<DateTimeWithTimeZone>,
 }
+
+#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::usuario::Entity",
+        from = "Column::IdAutor",
+        to = "super::usuario::Column::Id"
+    )]
+    Autor,
+}
+
+impl Related<super::usuario::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::Autor.def()
+    }
+}
+
+impl ActiveModelBehavior for ActiveModel {}
