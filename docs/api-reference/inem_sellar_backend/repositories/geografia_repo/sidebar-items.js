@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["SeaGeografiaRepo"],"trait":["GeografiaRepo"]};
+window.SIDEBAR_ITEMS = {"struct":["ActualizarComunidadDto","ActualizarOficinaDto","ActualizarProvinciaDto","CrearComunidadDto","CrearOficinaDto","CrearProvinciaDto","SeaGeografiaRepo"],"trait":["GeografiaRepo"]};
