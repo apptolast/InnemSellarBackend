@@ -4,7 +4,6 @@ k8s/backend/secret.yaml
 
 # Rust
 target/
-Cargo.lock
 
 # Environment
 .env
