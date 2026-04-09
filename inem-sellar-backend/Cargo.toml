@@ -25,3 +25,7 @@ uuid = {version = "1.23.0", features = ["v4", "serde"]}
 chrono = {version = "0.4.44", features = ["serde"]}
 thiserror = "2"
 anyhow = "1"
+argon2 = "0.5"
+jsonwebtoken = "9"
+sha2 = "0.10"
+rand = "0.8"

@@ -18,14 +18,17 @@ mod config;
 mod db;
 mod errors;
 mod handlers;
+mod middleware;
 mod models;
 mod repositories;
 mod routes;
+mod services;
 
 use salvo::affix_state;
 use salvo::prelude::*;
 
-use crate::repositories::SeaGeografiaRepo;
+use crate::repositories::{SeaAuthRepo, SeaGeografiaRepo, SeaOfertaRepo};
+use crate::services::AuthService;
 
 /// Handler basico que responde con "Hello World".
 ///
@@ -78,16 +81,19 @@ async fn main() {
     // SeaORM gestiona el pool internamente (usa SQLx por debajo).
     let db = db::init_db(&cfg).await;
 
-    // Creamos los repositorios, inyectando la conexion.
-    // `db.clone()` es barato — DatabaseConnection usa Arc internamente.
+    // Creamos servicios y repositorios, inyectando la conexion.
+    let auth_service = AuthService::new(cfg.jwt_secret.clone(), cfg.jwt_expiracion_minutos);
     let geo_repo = SeaGeografiaRepo::new(db.clone());
+    let auth_repo = SeaAuthRepo::new(db.clone());
+    let oferta_repo = SeaOfertaRepo::new(db.clone());
 
-    // Construimos el arbol de rutas de la API.
-    // `.hoop(affix_state::inject(geo_repo))` inyecta el repositorio
-    // en el Depot de Salvo — similar a Provider en Flutter.
+    // Inyectamos todos los servicios y repos en el Depot de Salvo.
     let router = Router::new()
         .get(hello)
+        .hoop(affix_state::inject(auth_service))
         .hoop(affix_state::inject(geo_repo))
+        .hoop(affix_state::inject(auth_repo))
+        .hoop(affix_state::inject(oferta_repo))
         .push(routes::crear_router());
 
     // `TcpListener` abre el socket TCP en el puerto 8080 en todas las interfaces

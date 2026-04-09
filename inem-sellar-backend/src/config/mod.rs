@@ -44,6 +44,21 @@ pub struct AppConfig {
     /// para que sea clickable en el terminal durante desarrollo).
     #[serde(default = "port_addr")]
     pub port_addr: String,
+
+    /// Secreto para firmar/verificar tokens JWT (HS256).
+    /// Se lee de la variable de entorno `JWT_SECRET`.
+    /// CRITICO: en produccion debe ser un valor aleatorio largo (>= 32 chars).
+    pub jwt_secret: String,
+
+    /// Duracion del access token JWT en minutos.
+    /// Default: 15 minutos. El frontend debe refrescar antes de que expire.
+    #[serde(default = "default_jwt_expiracion")]
+    pub jwt_expiracion_minutos: u64,
+}
+
+/// Duracion por defecto del access token: 15 minutos.
+fn default_jwt_expiracion() -> u64 {
+    15
 }
 
 /// Devuelve la direccion por defecto del servidor.
