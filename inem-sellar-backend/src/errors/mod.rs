@@ -19,6 +19,7 @@
 
 use salvo::async_trait;
 use salvo::http::StatusCode;
+use salvo::oapi::{Components, EndpointOutRegister, Operation};
 use salvo::prelude::*;
 use thiserror::Error;
 
@@ -94,6 +95,59 @@ impl AppError {
     /// Util con `.map_err(AppError::from_db)` en los repositorios.
     pub fn from_db(err: sea_orm::DbErr) -> Self {
         AppError::Database(err)
+    }
+}
+
+/// Implementacion de `EndpointOutRegister` para que `#[endpoint]` pueda documentar
+/// las respuestas de error en la especificacion OpenAPI generada automaticamente.
+///
+/// # Por que este trait
+/// Cuando un handler marcado con `#[endpoint]` devuelve `Result<T, AppError>`,
+/// Salvo necesita saber que codigos HTTP puede retornar el error para incluirlos
+/// en la documentacion OpenAPI. Este trait le dice a Salvo: "este error puede
+/// producir 400, 401, 403, 404, 409 y 500".
+///
+/// # Por que `let _ = components`
+/// `components` se usa para registrar schemas de tipos complejos (e.g., structs
+/// de respuesta de error con cuerpo JSON documentado). En nuestro caso solo
+/// registramos descripciones textuales simples, asi que no necesitamos `components`.
+/// La asignacion `let _ = ...` suprime el warning del compilador de variable no usada.
+impl EndpointOutRegister for AppError {
+    fn register(components: &mut Components, operation: &mut Operation) {
+        // Usamos String::from("400") en vez de "400".into() para ayudar al compilador
+        // a resolver la ambiguedad de tipos cuando hay multiples impls de Into<String>.
+        operation.responses.insert(
+            String::from("400"),
+            salvo::oapi::Response::new(
+                "Datos invalidos — el cuerpo JSON o los parametros no son correctos",
+            ),
+        );
+        operation.responses.insert(
+            String::from("401"),
+            salvo::oapi::Response::new("No autenticado — falta el token JWT o es invalido"),
+        );
+        operation.responses.insert(
+            String::from("403"),
+            salvo::oapi::Response::new(
+                "Sin permisos — el usuario autenticado no tiene acceso a este recurso",
+            ),
+        );
+        operation.responses.insert(
+            String::from("404"),
+            salvo::oapi::Response::new("Recurso no encontrado"),
+        );
+        operation.responses.insert(
+            String::from("409"),
+            salvo::oapi::Response::new("Conflicto — el recurso ya existe (ej: email duplicado)"),
+        );
+        operation.responses.insert(
+            String::from("500"),
+            salvo::oapi::Response::new("Error interno del servidor"),
+        );
+        // No registramos schemas de error en components porque las respuestas
+        // de error son objetos JSON simples { error: string, codigo: number }
+        // que no requieren definicion formal de schema.
+        let _ = components;
     }
 }
 

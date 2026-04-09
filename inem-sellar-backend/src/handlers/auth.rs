@@ -1,10 +1,13 @@
-// src/handlers/auth.rs
-//
-// Handlers de autenticacion: registro, login, refrescar, logout.
-// Cada handler coordina servicio + repositorio, pero NO contiene
-// logica de criptografia ni acceso a BD directamente.
+//! Handlers de autenticacion: registro, login, refrescar, logout.
+//!
+//! Cada handler coordina servicio + repositorio, pero NO contiene
+//! logica de criptografia ni acceso a BD directamente.
+//!
+//! Los handlers usan `#[endpoint]` (en vez de `#[handler]`) para que
+//! Salvo pueda generar la documentacion OpenAPI automaticamente.
 
 use chrono::{Duration, Utc};
+use salvo::oapi::extract::JsonBody;
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -18,58 +21,86 @@ use crate::services::AuthService;
 // Son diferentes a las entidades de BD — solo exponen lo necesario.
 
 /// Body del POST /api/v1/auth/registro
-#[derive(Deserialize)]
+///
+/// # Por que `ToSchema`
+/// `ToSchema` es un trait de Salvo OAPI que le dice al generador de OpenAPI
+/// como representar este struct en la documentacion como un JSON Schema.
+/// Sin el, `#[endpoint]` no puede documentar el cuerpo de la peticion.
+/// Es como anotaciones `@JsonSerializable` en Dart pero para documentacion API.
+#[derive(Deserialize, ToSchema)]
 pub struct RegistroRequest {
+    /// Email del nuevo usuario. Debe ser unico en el sistema.
     pub email: String,
+    /// Contrasena en texto plano. Se hashea con Argon2id antes de guardar.
     pub contrasena: String,
+    /// Nombre que se mostrara publicamente. Opcional.
     pub nombre_visible: Option<String>,
 }
 
 /// Body del POST /api/v1/auth/login
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct LoginRequest {
+    /// Email registrado del usuario.
     pub email: String,
+    /// Contrasena en texto plano para verificar contra el hash almacenado.
     pub contrasena: String,
 }
 
 /// Body del POST /api/v1/auth/refrescar
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct RefrescarRequest {
+    /// Refresh token emitido en registro o login. Se revoca tras usarlo (rotacion).
     pub refresh_token: String,
 }
 
 /// Body del POST /api/v1/auth/logout
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct LogoutRequest {
+    /// Refresh token a revocar. Tras el logout el token queda invalido.
     pub refresh_token: String,
 }
 
-/// Respuesta de registro y login — contiene tokens + datos basicos del usuario
-#[derive(Serialize)]
+/// Respuesta de registro y login — contiene tokens + datos basicos del usuario.
+///
+/// # Por que `Serialize` y `ToSchema`
+/// `Serialize` (de serde) convierte el struct a JSON para la respuesta HTTP.
+/// `ToSchema` permite que OpenAPI documente la estructura de la respuesta.
+/// Juntos, forman el contrato completo: implementacion + documentacion.
+#[derive(Serialize, ToSchema)]
 pub struct AuthResponse {
+    /// Token JWT de acceso. Corta duracion (15 min por defecto).
+    /// Incluirlo en `Authorization: Bearer <token>` en cada peticion protegida.
     pub access_token: String,
+    /// Token de refresco. Larga duracion (30 dias). Guardar de forma segura.
     pub refresh_token: String,
+    /// Datos basicos del usuario recien autenticado.
     pub usuario: UsuarioResponse,
 }
 
-/// Datos publicos del usuario (sin hash_contrasena)
-#[derive(Serialize)]
+/// Datos publicos del usuario (sin hash_contrasena).
+#[derive(Serialize, ToSchema)]
 pub struct UsuarioResponse {
+    /// UUID del usuario en la base de datos.
     pub id: Uuid,
+    /// Email del usuario. Puede ser None si se registro solo con OAuth.
     pub email: Option<String>,
+    /// Nombre visible publicamente. Puede ser None si no lo proporcionó.
     pub nombre_visible: Option<String>,
 }
 
-/// Respuesta de refrescar — solo tokens nuevos
-#[derive(Serialize)]
+/// Respuesta de refrescar — solo tokens nuevos.
+#[derive(Serialize, ToSchema)]
 pub struct TokenResponse {
+    /// Nuevo access token JWT.
     pub access_token: String,
+    /// Nuevo refresh token (el anterior queda revocado).
     pub refresh_token: String,
 }
 
-/// Respuesta generica con mensaje
-#[derive(Serialize)]
+/// Respuesta generica con mensaje de confirmacion.
+#[derive(Serialize, ToSchema)]
 pub struct MensajeResponse {
+    /// Mensaje descriptivo de la operacion realizada.
     pub mensaje: String,
 }
 
@@ -78,23 +109,30 @@ pub struct MensajeResponse {
 /// POST /api/v1/auth/registro — Crear cuenta nueva.
 ///
 /// # Flujo
-/// 1. Parsear body JSON → RegistroRequest
+/// 1. Parsear body JSON → RegistroRequest (via `JsonBody<T>` extractor)
 /// 2. Verificar que el email no exista (409 si ya existe)
 /// 3. Hashear la contrasena con Argon2id
 /// 4. Crear el usuario en la BD
 /// 5. Generar access token (JWT) + refresh token
 /// 6. Guardar hash del refresh token en BD
 /// 7. Devolver tokens + datos del usuario
-#[handler]
+///
+/// # Por que `#[endpoint]` en vez de `#[handler]`
+/// `#[endpoint]` hace todo lo que hace `#[handler]` PERO ademas genera
+/// metadata OpenAPI (path, metodo HTTP, parametros, respuestas) que Salvo
+/// usa para construir la documentacion Swagger automaticamente.
+/// La diferencia es solo en tiempo de compilacion — el comportamiento
+/// en runtime es identico.
+///
+/// # Por que `JsonBody<RegistroRequest>` en vez de `req.parse_json()`
+/// `JsonBody<T>` es un "extractor" tipado de Salvo OAPI. Salvo lo detecta
+/// en la firma de la funcion y lo documenta como el body esperado en OpenAPI.
+/// Con `req.parse_json()`, Salvo no puede inferir el tipo del body para documentarlo.
+#[endpoint(tags("Auth"))]
 pub async fn registro(
-    req: &mut Request,
+    body: JsonBody<RegistroRequest>,
     depot: &mut Depot,
 ) -> Result<Json<AuthResponse>, AppError> {
-    let body: RegistroRequest = req
-        .parse_json()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("JSON invalido: {e}")))?;
-
     let auth_service = depot
         .obtain::<AuthService>()
         .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
@@ -138,13 +176,11 @@ pub async fn registro(
 }
 
 /// POST /api/v1/auth/login — Iniciar sesion.
-#[handler]
-pub async fn login(req: &mut Request, depot: &mut Depot) -> Result<Json<AuthResponse>, AppError> {
-    let body: LoginRequest = req
-        .parse_json()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("JSON invalido: {e}")))?;
-
+#[endpoint(tags("Auth"))]
+pub async fn login(
+    body: JsonBody<LoginRequest>,
+    depot: &mut Depot,
+) -> Result<Json<AuthResponse>, AppError> {
     let auth_service = depot
         .obtain::<AuthService>()
         .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
@@ -199,16 +235,11 @@ pub async fn login(req: &mut Request, depot: &mut Depot) -> Result<Json<AuthResp
 /// Al refrescar, el refresh token anterior se revoca y se emite uno nuevo.
 /// Esto limita el dano si un refresh token es comprometido: el atacante
 /// solo tiene una ventana corta antes de que el token se invalide.
-#[handler]
+#[endpoint(tags("Auth"))]
 pub async fn refrescar(
-    req: &mut Request,
+    body: JsonBody<RefrescarRequest>,
     depot: &mut Depot,
 ) -> Result<Json<TokenResponse>, AppError> {
-    let body: RefrescarRequest = req
-        .parse_json()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("JSON invalido: {e}")))?;
-
     let auth_service = depot
         .obtain::<AuthService>()
         .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
@@ -253,16 +284,17 @@ pub async fn refrescar(
 
 /// POST /api/v1/auth/logout — Cerrar sesion (revocar refresh token).
 /// Requiere autenticacion (access token en header Authorization).
-#[handler]
+///
+/// # Por que `security(("bearer_auth" = []))`
+/// Esta anotacion le dice a OpenAPI que este endpoint requiere el esquema
+/// de seguridad `bearer_auth` definido en main.rs (JWT Bearer token).
+/// Swagger UI mostrara un candado y permitira al usuario introducir su token
+/// para probar el endpoint directamente desde la documentacion.
+#[endpoint(tags("Auth"), security(("bearer_auth" = [])))]
 pub async fn logout(
-    req: &mut Request,
+    body: JsonBody<LogoutRequest>,
     depot: &mut Depot,
 ) -> Result<Json<MensajeResponse>, AppError> {
-    let body: LogoutRequest = req
-        .parse_json()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("JSON invalido: {e}")))?;
-
     let auth_service = depot
         .obtain::<AuthService>()
         .map_err(|_| AppError::Internal("AuthService no disponible".into()))?

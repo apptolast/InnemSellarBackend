@@ -9,7 +9,12 @@
 //! para PostgreSQL, y JWT para autenticacion. Cada modulo incluye documentacion
 //! educativa que explica los conceptos de Rust utilizados.
 //!
-//! # Como generar la documentacion en HTML
+//! # Documentacion de la API
+//! Con el servidor en marcha, la documentacion Swagger UI esta disponible en:
+//! - Swagger UI: `http://localhost:8080/swagger-ui`
+//! - JSON OpenAPI: `http://localhost:8080/api-doc/openapi.json`
+//!
+//! # Como generar la documentacion Rust en HTML
 //! ```bash
 //! cargo doc --no-deps --open
 //! ```
@@ -25,6 +30,8 @@ mod routes;
 mod services;
 
 use salvo::affix_state;
+use salvo::oapi::security::{Http, HttpAuthScheme, SecurityScheme};
+use salvo::oapi::{Info, OpenApi};
 use salvo::prelude::*;
 
 use crate::repositories::{SeaAuthRepo, SeaGeografiaRepo, SeaOfertaRepo};
@@ -36,6 +43,12 @@ use crate::services::AuthService;
 /// `#[handler]` es una macro de Salvo que convierte una funcion async en un handler HTTP.
 /// Gestiona automaticamente la extraccion de parametros de la request y la serializacion
 /// de la respuesta. Es similar a las anotaciones de ruta en frameworks como Shelf en Dart.
+///
+/// # Por que `#[handler]` aqui y no `#[endpoint]`
+/// Este handler de health-check es tan simple que no aporta valor documentarlo en OpenAPI.
+/// `#[endpoint]` se reserva para los handlers de negocio que necesitan documentacion.
+/// Tecnicamente ambos funcionan igual en runtime; la diferencia es solo en que
+/// `#[endpoint]` genera metadata OpenAPI y `#[handler]` no.
 ///
 /// # Por que `&'static str`
 /// `'static` es un lifetime que indica que el string vive durante toda la ejecucion del programa.
@@ -88,6 +101,13 @@ async fn main() {
     let oferta_repo = SeaOfertaRepo::new(db.clone());
 
     // Inyectamos todos los servicios y repos en el Depot de Salvo.
+    //
+    // # Por que inyectar en el router raiz
+    // `affix_state::inject(valor)` es un middleware que inserta el valor en el `Depot`
+    // de cada peticion. Al ponerlo en el router raiz con `.hoop(...)`, todos los
+    // handlers hijo pueden acceder a el con `depot.obtain::<Tipo>()`.
+    // Es el patron de "inyeccion de dependencias" de Salvo: similar a los Providers
+    // de Riverpod en Flutter, pero sin arbol de widgets — solo un mapa tipado por request.
     let router = Router::new()
         .get(hello)
         .hoop(affix_state::inject(auth_service))
@@ -96,12 +116,77 @@ async fn main() {
         .hoop(affix_state::inject(oferta_repo))
         .push(routes::crear_router());
 
+    // ── Documentacion OpenAPI / Swagger UI ──────────────────────────────────
+    //
+    // # Por que OpenAPI
+    // OpenAPI (antes Swagger) es el estandar de la industria para documentar APIs REST.
+    // El spec JSON describe todos los endpoints, parametros, esquemas de request/response
+    // y requisitos de autenticacion. Swagger UI lo convierte en una interfaz web interactiva
+    // donde los desarrolladores (y el equipo de Flutter) pueden explorar y probar la API.
+    //
+    // # Como funciona con Salvo OAPI
+    // `OpenApi::new(...)` recorre el router y recopila la metadata que generaron los
+    // `#[endpoint]` (tags, parametros, esquemas de DTOs marcados con `ToSchema`,
+    // esquemas de seguridad). El resultado es un JSON valido segun la spec OpenAPI 3.x.
+    //
+    // `.merge_router(&router)` es el paso clave: Salvo inspecciona el arbol de routers
+    // buscando handlers marcados con `#[endpoint]` y extrae su informacion de tipos
+    // para construir el spec OpenAPI automaticamente.
+    //
+    // # Por que `add_security_scheme("bearer_auth", ...)`
+    // Define el esquema de autenticacion JWT que referencian los endpoints con
+    // `security(("bearer_auth" = []))`. Le dice a OpenAPI: "hay un esquema llamado
+    // bearer_auth que es HTTP Bearer con formato JWT". Swagger UI mostrara un boton
+    // "Authorize" donde el usuario puede pegar su JWT para probar endpoints protegidos.
+    let doc = OpenApi::new("InemSellar API", "0.1.0")
+        .info(
+            Info::new("InemSellar API", "0.1.0")
+                .description(
+                    "API REST del backend de InemSellar\n\n\
+                     App de ayuda a desempleados en Espana — SEPE/INEM.\n\n\
+                     **Autenticacion**: usa `POST /api/v1/auth/login` para obtener un \
+                     `access_token` JWT y pulsalo en el boton Authorize (arriba a la derecha).",
+                )
+                .contact(
+                    salvo::oapi::Contact::new()
+                        .name("AppToLast")
+                        .email("admin@apptolast.com"),
+                ),
+        )
+        .add_security_scheme(
+            "bearer_auth",
+            // `Http` define un esquema de autenticacion HTTP estandar.
+            // `HttpAuthScheme::Bearer` indica que el token va en el header
+            // `Authorization: Bearer <token>`. `.bearer_format("JWT")` es
+            // solo un hint para Swagger UI (no afecta a la validacion).
+            SecurityScheme::Http(Http::new(HttpAuthScheme::Bearer).bearer_format("JWT")),
+        )
+        .merge_router(&router);
+
+    // Anadimos las rutas de documentacion al router existente.
+    //
+    // # Por que `.unshift(...)` y no `.push(...)`
+    // `.unshift()` inserta el router al PRINCIPIO del arbol de rutas, antes que las
+    // rutas de negocio. Esto es necesario para que las rutas `/api-doc/openapi.json`
+    // y `/swagger-ui` se registren correctamente sin conflictos con el prefijo `/api/v1`.
+    //
+    // # Las dos rutas de documentacion
+    // - `/api-doc/openapi.json`: el spec JSON bruto (util para herramientas externas)
+    // - `/swagger-ui`: interfaz web interactiva (para humanos)
+    let router = router
+        .unshift(doc.into_router("/api-doc/openapi.json"))
+        .unshift(SwaggerUi::new("/api-doc/openapi.json").into_router("/swagger-ui"));
+
     // `TcpListener` abre el socket TCP en el puerto 8080 en todas las interfaces
     // de red (0.0.0.0). `.bind().await` completa el binding de forma asincrona.
     // En produccion, Nginx actua como proxy inverso delante de este puerto.
     let acceptor = TcpListener::new(cfg.port_addr).bind().await;
 
     tracing::info!("Servidor escuchando en http://{}", cfg.server_addr);
+    tracing::info!(
+        "Documentacion Swagger UI: http://{}/swagger-ui",
+        cfg.server_addr
+    );
 
     // `Server::new(acceptor).serve(router).await` arranca el bucle principal
     // de aceptacion de conexiones. Esta llamada no retorna hasta que el proceso
