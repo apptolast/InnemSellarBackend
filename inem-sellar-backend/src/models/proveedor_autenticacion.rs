@@ -1,6 +1,11 @@
+// Modelo preparado para OAuth (Google, Apple) — fase 2.
+// Se permite dead_code porque la entidad existe en la BD
+// y sera usada cuando se implemente autenticacion con proveedores externos.
+
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[sea_orm(table_name = "proveedores_autenticacion")]
 pub struct Model {
@@ -17,6 +22,7 @@ pub struct Model {
     pub actualizado_en: Option<DateTimeWithTimeZone>,
 }
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
     #[sea_orm(
