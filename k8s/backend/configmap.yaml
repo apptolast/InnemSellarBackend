@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inem-sellar-backend-config
+  namespace: apptolast-inemsellar
+  labels:
+    app: inem-sellar-backend
+data:
+  SERVER_ADDR: "0.0.0.0:8080"
+  PORT_ADDR: "0.0.0.0:8080"
+  RUST_LOG: "info"
+  JWT_EXPIRACION_MINUTOS: "15"

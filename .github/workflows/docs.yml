@@ -1,0 +1,394 @@
+name: Generate Documentation
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  generate-docs:
+    name: Generate and Publish Documentation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            inem-sellar-backend/target
+          key: ${{ runner.os }}-cargo-doc-${{ hashFiles('inem-sellar-backend/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-doc-
+
+      - name: Install system dependencies
+        run: sudo apt-get update -q && sudo apt-get install -y -q pkg-config libssl-dev
+
+      - name: Build rustdoc
+        working-directory: inem-sellar-backend
+        run: cargo doc --no-deps 2>&1
+
+      - name: Copy rustdoc output
+        run: |
+          mkdir -p docs/api-reference
+          cp -r inem-sellar-backend/target/doc/. docs/api-reference/
+
+      - name: Generate documentation files
+        run: |
+          mkdir -p docs/es docs/en
+
+          cat > docs/es/README.md << 'ESEOF'
+# InemSellar Backend — Documentacion en Espanol
+
+## Descripcion del proyecto
+
+InemSellar es una aplicacion Flutter de ayuda a desempleados en Espana (SEPE/INEM).
+Este backend esta escrito en Rust usando el framework Salvo y PostgreSQL 16 como base
+de datos, con SeaORM como ORM asincrono.
+
+---
+
+## Caracteristicas del lenguaje Rust utilizadas
+
+### Ownership y Borrowing
+Rust garantiza seguridad de memoria en tiempo de compilacion sin garbage collector.
+El sistema de ownership hace que cada valor tenga exactamente un propietario, y el
+borrowing permite referencias temporales sin transferir la propiedad. En este proyecto
+se usa para pasar configuracion y conexiones de base de datos sin clonaciones innecesarias.
+
+### Traits como contratos (interfaces)
+Los traits en Rust son equivalentes a las interfaces en otros lenguajes. En este proyecto
+se usa el **repository pattern**: cada repositorio define un trait con las operaciones
+disponibles, y la implementacion concreta lo implementa. Esto permite:
+- Desacoplar la logica de negocio de la implementacion de base de datos
+- Facilitar el testing con implementaciones mock
+- Seguir el principio de inversion de dependencias (SOLID)
+
+Ejemplo: `UsuarioRepository` es un trait, `UsuarioRepositoryImpl` lo implementa usando SeaORM.
+
+### Async/Await con Tokio
+Todo el servidor es completamente asincrono. Tokio es el runtime async de Rust. La clave:
+- `async fn` define funciones que pueden suspenderse sin bloquear el hilo del SO
+- `.await` cede el control al scheduler mientras espera I/O (base de datos, red)
+- Esto permite manejar miles de conexiones concurrentes con pocos hilos del SO
+
+### Error Handling con thiserror y anyhow
+- `thiserror`: define errores propios con mensajes descriptivos usando `#[derive(Error)]`
+- `anyhow`: propaga errores de cualquier tipo hacia arriba en la pila de llamadas
+- Patron: las capas internas usan `thiserror` para errores tipados; los handlers usan
+  `anyhow` para simplificar la propagacion.
+
+### Lifetimes
+Los lifetimes garantizan que las referencias no outliven los datos a los que apuntan.
+En este proyecto se usan principalmente de forma implicita (lifetime elision), pero
+aparecen explicitamente en algunos contextos de middleware de Salvo.
+
+### Genericos y tipo-estado
+Los genericos permiten codigo reutilizable sin coste en runtime. SeaORM usa genericos
+extensivamente para que las queries sean tipadas en tiempo de compilacion, detectando
+errores de esquema antes de ejecutar.
+
+---
+
+## Framework Salvo
+
+Salvo es un framework web asincrono para Rust. Caracteristicas usadas:
+
+- **affix-state**: inyeccion de dependencias. Permite adjuntar estado compartido
+  (conexion a BD, configuracion) al router y acceder desde cualquier handler.
+- **Router**: define las rutas de la API con metodos HTTP.
+- **Handler**: funcion asincrona que procesa una peticion HTTP.
+- **Middleware (hoop)**: interceptores que se ejecutan antes/despues de los handlers.
+  Se usan para autenticacion JWT, logging, y CORS.
+
+---
+
+## Arquitectura
+
+### Repository Pattern
+
+```
+Handler (HTTP) -> Service (logica de negocio) -> Repository (acceso a datos) -> PostgreSQL
+```
+
+- Los handlers solo validan entrada y llaman al servicio
+- Los servicios contienen la logica de negocio
+- Los repositorios abstraen todas las queries SQL a traves de traits
+- SeaORM genera queries tipadas a partir de los modelos
+
+### Autenticacion JWT
+- Access token: vida corta (15 min). Se envia en el header `Authorization: Bearer <token>`
+- Refresh token: vida larga, guardado en BD (tabla `tokens_refresco`), permite renovar
+  el access token sin re-autenticarse
+- El hash del refresh token se almacena (no el token en claro) para mayor seguridad
+- Implementado con la crate `jsonwebtoken`
+
+### SeaORM
+ORM asincrono sobre SQLx. Caracteristicas:
+- Entidades tipadas que mapean a tablas PostgreSQL
+- Query builder en Rust (sin SQL crudo en la mayoria de casos)
+- Migraciones versionadas
+- Soporte para UUIDs, timestamps, arrays de PostgreSQL, JSONB
+
+---
+
+## Endpoints de la API
+
+### Autenticacion
+- `POST /auth/registro` — Registrar nuevo usuario
+- `POST /auth/login` — Login con email/password, devuelve access + refresh tokens
+- `POST /auth/refresh` — Renovar access token usando refresh token
+- `POST /auth/logout` — Revocar refresh token
+
+### Ofertas de empleo
+- `GET /ofertas` — Listar ofertas activas (paginado)
+- `POST /ofertas` — Crear oferta (requiere auth)
+- `GET /ofertas/:id` — Detalle de una oferta
+- `PUT /ofertas/:id` — Editar oferta (requiere ser autor)
+- `DELETE /ofertas/:id` — Eliminar oferta (requiere ser autor o admin)
+
+### Consejos
+- `GET /consejos` — Listar consejos activos
+- `POST /consejos` — Crear consejo (requiere auth)
+- `GET /consejos/:id` — Detalle de un consejo
+
+### Cursos
+- `GET /cursos` — Listar cursos activos
+- `POST /cursos` — Crear curso (requiere auth)
+- `GET /cursos/:id` — Detalle de un curso
+
+### Geografia
+- `GET /comunidades` — Listar comunidades autonomas
+- `GET /provincias` — Listar provincias
+- `GET /provincias/:id` — Detalle de provincia con oficina SEPE
+
+### Sistema
+- `GET /` — Health check (devuelve 200 OK)
+- `GET /config` — Configuracion publica de la aplicacion
+
+---
+
+## Estructura del proyecto
+
+```
+src/
+├── main.rs              — Punto de entrada, configura Salvo y arranca el servidor
+├── config/              — Carga de variables de entorno con dotenvy/envy
+├── db/                  — Pool de conexion SeaORM a PostgreSQL
+├── errors/              — Tipos de error propios con thiserror
+├── handlers/            — Funciones HTTP (reciben Request, devuelven Response)
+├── middleware/          — Auth JWT, logging, CORS
+├── models/              — Structs que mapean a tablas PostgreSQL (SeaORM entities)
+├── repositories/        — Traits + implementaciones de acceso a datos
+├── routes/              — Definicion del arbol de rutas con Salvo Router
+└── services/            — Logica de negocio
+```
+
+---
+
+## Variables de entorno requeridas
+
+| Variable                  | Descripcion                                  | Ejemplo                       |
+|---------------------------|----------------------------------------------|-------------------------------|
+| `DATABASE_URL`            | URL de conexion a PostgreSQL                 | Ver `.env.example`            |
+| `JWT_SECRET`              | Clave secreta para firmar tokens JWT         | Cadena aleatoria de 48+ bytes |
+| `JWT_EXPIRACION_MINUTOS`  | Duracion del access token en minutos         | `15`                          |
+| `SERVER_ADDR`             | Direccion y puerto donde escucha el servidor | `0.0.0.0:8080`                |
+| `RUST_LOG`                | Nivel de logs (trace/debug/info/warn/error)  | `info`                        |
+
+---
+
+## Referencia API generada por rustdoc
+
+La documentacion tecnica completa generada por `cargo doc` esta disponible en
+`docs/api-reference/inem_sellar_backend/index.html`.
+ESEOF
+
+          cat > docs/en/README.md << 'ENEOF'
+# InemSellar Backend — English Documentation
+
+## Project Description
+
+InemSellar is a Flutter app that helps unemployed people in Spain (SEPE/INEM).
+This backend is written in Rust using the Salvo framework and PostgreSQL 16,
+with SeaORM as the async ORM.
+
+---
+
+## Rust Language Features Used
+
+### Ownership and Borrowing
+Rust guarantees memory safety at compile time with no garbage collector.
+The ownership system ensures each value has exactly one owner, and borrowing
+allows temporary references without transferring ownership. Used here to pass
+configuration and database connections without unnecessary cloning.
+
+### Traits as Contracts (Interfaces)
+Traits in Rust are equivalent to interfaces in other languages. This project uses
+the **repository pattern**: each repository defines a trait with available operations,
+and the concrete implementation implements it. This enables:
+- Decoupling business logic from database implementation
+- Easier testing with mock implementations
+- Dependency Inversion Principle (SOLID)
+
+Example: `UsuarioRepository` is a trait, `UsuarioRepositoryImpl` implements it using SeaORM.
+
+### Async/Await with Tokio
+The entire server is fully asynchronous. Tokio is Rust's async runtime:
+- `async fn` defines functions that can be suspended without blocking an OS thread
+- `.await` yields control to the scheduler while waiting for I/O (database, network)
+- This allows handling thousands of concurrent connections with few OS threads
+
+### Error Handling with thiserror and anyhow
+- `thiserror`: defines custom errors with descriptive messages using `#[derive(Error)]`
+- `anyhow`: propagates errors of any type up the call stack
+- Pattern: inner layers use `thiserror` for typed errors; handlers use `anyhow` for
+  simplified propagation.
+
+### Lifetimes
+Lifetimes ensure references do not outlive the data they point to.
+In this project they are used mostly implicitly (lifetime elision), but appear
+explicitly in some Salvo middleware contexts.
+
+### Generics and Type-State
+Generics allow reusable code with no runtime cost. SeaORM uses generics extensively
+so queries are typed at compile time, catching schema errors before execution.
+
+---
+
+## Salvo Framework
+
+Salvo is an async web framework for Rust. Features used:
+
+- **affix-state**: dependency injection. Attaches shared state (DB connection,
+  config) to the router and makes it accessible from any handler.
+- **Router**: defines API routes with HTTP methods.
+- **Handler**: async function that processes an HTTP request.
+- **Middleware (hoop)**: interceptors that run before/after handlers.
+  Used for JWT authentication, logging, and CORS.
+
+---
+
+## Architecture
+
+### Repository Pattern
+
+```
+Handler (HTTP) -> Service (business logic) -> Repository (data access) -> PostgreSQL
+```
+
+- Handlers only validate input and call the service
+- Services contain business logic
+- Repositories abstract all SQL queries through traits
+- SeaORM generates typed queries from models
+
+### JWT Authentication
+- Access token: short-lived (15 min). Sent in `Authorization: Bearer <token>` header
+- Refresh token: long-lived, stored in DB (`tokens_refresco` table), allows renewing
+  the access token without re-authenticating
+- The hash of the refresh token is stored (not the token in plaintext) for security
+- Implemented with the `jsonwebtoken` crate
+
+### SeaORM
+Async ORM on top of SQLx. Features:
+- Typed entities mapping to PostgreSQL tables
+- Rust query builder (no raw SQL in most cases)
+- Versioned migrations
+- Support for UUIDs, timestamps, PostgreSQL arrays, JSONB
+
+---
+
+## API Endpoints
+
+### Authentication
+- `POST /auth/registro` — Register new user
+- `POST /auth/login` — Login with email/password, returns access + refresh tokens
+- `POST /auth/refresh` — Renew access token using refresh token
+- `POST /auth/logout` — Revoke refresh token
+
+### Job Offers
+- `GET /ofertas` — List active offers (paginated)
+- `POST /ofertas` — Create offer (requires auth)
+- `GET /ofertas/:id` — Offer detail
+- `PUT /ofertas/:id` — Edit offer (requires being the author)
+- `DELETE /ofertas/:id` — Delete offer (requires being author or admin)
+
+### Tips
+- `GET /consejos` — List active tips
+- `POST /consejos` — Create tip (requires auth)
+- `GET /consejos/:id` — Tip detail
+
+### Courses
+- `GET /cursos` — List active courses
+- `POST /cursos` — Create course (requires auth)
+- `GET /cursos/:id` — Course detail
+
+### Geography
+- `GET /comunidades` — List autonomous communities
+- `GET /provincias` — List provinces
+- `GET /provincias/:id` — Province detail with SEPE office info
+
+### System
+- `GET /` — Health check (returns 200 OK)
+- `GET /config` — Public application configuration
+
+---
+
+## Project Structure
+
+```
+src/
+├── main.rs              — Entry point, configures Salvo and starts the server
+├── config/              — Environment variable loading with dotenvy/envy
+├── db/                  — SeaORM connection pool to PostgreSQL
+├── errors/              — Custom error types with thiserror
+├── handlers/            — HTTP functions (receive Request, return Response)
+├── middleware/          — JWT auth, logging, CORS
+├── models/              — Structs mapping to PostgreSQL tables (SeaORM entities)
+├── repositories/        — Traits + data access implementations
+├── routes/              — Route tree definition with Salvo Router
+└── services/            — Business logic
+```
+
+---
+
+## Required Environment Variables
+
+| Variable                  | Description                                  | Example                          |
+|---------------------------|----------------------------------------------|----------------------------------|
+| `DATABASE_URL`            | PostgreSQL connection URL                    | See `.env.example`               |
+| `JWT_SECRET`              | Secret key for signing JWT tokens            | Random 48+ byte string           |
+| `JWT_EXPIRACION_MINUTOS`  | Access token duration in minutes             | `15`                             |
+| `SERVER_ADDR`             | Address and port the server listens on       | `0.0.0.0:8080`                   |
+| `RUST_LOG`                | Log level (trace/debug/info/warn/error)      | `info`                           |
+
+---
+
+## Generated API Reference
+
+The complete technical documentation generated by `cargo doc` is available at
+`docs/api-reference/inem_sellar_backend/index.html`.
+ENEOF
+
+          echo "Documentation files generated."
+
+      - name: Commit and push documentation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/
+          if git diff --cached --quiet; then
+            echo "No documentation changes to commit."
+          else
+            git commit -m "docs: regenerate API reference and guides [skip ci]"
+            git push
+          fi

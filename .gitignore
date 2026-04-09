@@ -1,4 +1,6 @@
-k8s/
+# K8s secrets (contienen credenciales)
+k8s/secret.yaml
+k8s/backend/secret.yaml
 
 # Rust
 target/

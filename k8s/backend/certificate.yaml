@@ -1,0 +1,14 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: inemsellarapi-tls
+  namespace: apptolast-inemsellar
+spec:
+  dnsNames:
+    - inemsellarapi.apptolast.com
+  duration: 2160h
+  renewBefore: 720h
+  issuerRef:
+    kind: ClusterIssuer
+    name: cloudflare-clusterissuer
+  secretName: inemsellarapi-tls

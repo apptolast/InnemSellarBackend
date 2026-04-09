@@ -1,0 +1,66 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: image-updater
+  namespace: apptolast-inemsellar
+  labels:
+    app: inem-sellar-backend
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: image-updater
+  namespace: apptolast-inemsellar
+  labels:
+    app: inem-sellar-backend
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: image-updater
+  namespace: apptolast-inemsellar
+  labels:
+    app: inem-sellar-backend
+subjects:
+  - kind: ServiceAccount
+    name: image-updater
+    namespace: apptolast-inemsellar
+roleRef:
+  kind: Role
+  name: image-updater
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: image-updater
+  namespace: apptolast-inemsellar
+  labels:
+    app: inem-sellar-backend
+spec:
+  schedule: "0 */12 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: image-updater
+          restartPolicy: OnFailure
+          containers:
+            - name: kubectl
+              image: bitnami/kubectl:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  kubectl rollout restart deployment/inem-sellar-backend -n apptolast-inemsellar
+                  kubectl rollout status deployment/inem-sellar-backend -n apptolast-inemsellar --timeout=5m
