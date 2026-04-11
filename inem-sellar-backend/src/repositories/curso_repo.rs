@@ -19,6 +19,7 @@ pub struct CrearCursoDto {
     pub curso_homologado: Option<bool>,
     pub telefono_contacto: Option<String>,
     pub email_contacto: Option<String>,
+    pub origen: Option<String>,
     pub provincias: Vec<i32>,
 }
 
