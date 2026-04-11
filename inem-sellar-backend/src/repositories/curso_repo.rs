@@ -5,6 +5,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::errors::AppError;
+use crate::models::enums::OrigenContenido;
 use crate::models::{curso, curso_provincia};
 
 pub struct CrearCursoDto {
@@ -19,7 +20,7 @@ pub struct CrearCursoDto {
     pub curso_homologado: Option<bool>,
     pub telefono_contacto: Option<String>,
     pub email_contacto: Option<String>,
-    pub origen: Option<String>,
+    pub origen: Option<OrigenContenido>,
     pub provincias: Vec<i32>,
 }
 
@@ -143,6 +144,7 @@ impl CursoRepo for SeaCursoRepo {
             curso_homologado: Set(datos.curso_homologado),
             telefono_contacto: Set(datos.telefono_contacto),
             email_contacto: Set(datos.email_contacto),
+            origen: Set(datos.origen),
             activo: Set(Some(true)),
             ..Default::default()
         };

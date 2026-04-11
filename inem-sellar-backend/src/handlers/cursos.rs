@@ -13,7 +13,6 @@
 
 use salvo::oapi::extract::{JsonBody, PathParam, QueryParam};
 use salvo::prelude::*;
-use sea_orm::ActiveEnum;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::models::enums::OrigenContenido;
@@ -289,7 +288,7 @@ pub async fn crear_curso(
         curso_homologado: body.curso_homologado,
         telefono_contacto: body.telefono_contacto.clone(),
         email_contacto: body.email_contacto.clone(),
-        origen: Option::from(OrigenContenido::Comunidad.to_value()),
+        origen: Some(OrigenContenido::Comunidad),
         provincias: body.provincias.clone(),
     };
 
