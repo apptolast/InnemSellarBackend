@@ -244,7 +244,7 @@ pub async fn actualizar_consejo(
 
     // Verificar que el usuario es el autor del consejo
     let consejo_existente = repo.obtener_consejo(uuid).await?;
-    if consejo_existente.id_autor != id_usuario {
+    if consejo_existente.id_autor != Some(id_usuario) {
         return Err(AppError::Forbidden);
     }
 
@@ -284,7 +284,7 @@ pub async fn eliminar_consejo(
 
     // Verificar que el usuario es el autor antes de eliminar
     let consejo = repo.obtener_consejo(uuid).await?;
-    if consejo.id_autor != id_usuario {
+    if consejo.id_autor != Some(id_usuario) {
         return Err(AppError::Forbidden);
     }
 

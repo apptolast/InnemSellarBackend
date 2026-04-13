@@ -8,7 +8,8 @@ use super::enums::EstadoModeracion;
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
     pub id: Uuid,
-    pub id_autor: Uuid,
+    /// FK nullable — ON DELETE SET NULL (alterado en seed.sql)
+    pub id_autor: Option<Uuid>,
     pub titulo: Option<String>,
     pub cuerpo: Option<String>,
     pub web: Option<String>,

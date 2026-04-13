@@ -116,7 +116,7 @@ impl ConsejoRepo for SeaConsejoRepo {
 
         let nuevo = consejo::ActiveModel {
             id: Set(id_consejo),
-            id_autor: Set(id_autor),
+            id_autor: Set(Some(id_autor)),
             titulo: Set(datos.titulo),
             cuerpo: Set(datos.cuerpo),
             web: Set(datos.web),
