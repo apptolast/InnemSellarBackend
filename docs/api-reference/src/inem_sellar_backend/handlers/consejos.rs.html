@@ -244,7 +244,7 @@
 <a href=#244 id=244 data-nosnippet>244</a>
 <a href=#245 id=245 data-nosnippet>245</a>    <span class="comment">// Verificar que el usuario es el autor del consejo
 <a href=#246 id=246 data-nosnippet>246</a>    </span><span class="kw">let </span>consejo_existente = repo.obtener_consejo(uuid).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#247 id=247 data-nosnippet>247</a>    <span class="kw">if </span>consejo_existente.<span class="macro">id_autor !</span>= id_usuario {
+<a href=#247 id=247 data-nosnippet>247</a>    <span class="kw">if </span>consejo_existente.<span class="macro">id_autor !</span>= <span class="prelude-val">Some</span>(id_usuario) {
 <a href=#248 id=248 data-nosnippet>248</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(AppError::Forbidden);
 <a href=#249 id=249 data-nosnippet>249</a>    }
 <a href=#250 id=250 data-nosnippet>250</a>
@@ -284,7 +284,7 @@
 <a href=#284 id=284 data-nosnippet>284</a>
 <a href=#285 id=285 data-nosnippet>285</a>    <span class="comment">// Verificar que el usuario es el autor antes de eliminar
 <a href=#286 id=286 data-nosnippet>286</a>    </span><span class="kw">let </span>consejo = repo.obtener_consejo(uuid).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#287 id=287 data-nosnippet>287</a>    <span class="kw">if </span>consejo.<span class="macro">id_autor !</span>= id_usuario {
+<a href=#287 id=287 data-nosnippet>287</a>    <span class="kw">if </span>consejo.<span class="macro">id_autor !</span>= <span class="prelude-val">Some</span>(id_usuario) {
 <a href=#288 id=288 data-nosnippet>288</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(AppError::Forbidden);
 <a href=#289 id=289 data-nosnippet>289</a>    }
 <a href=#290 id=290 data-nosnippet>290</a>
