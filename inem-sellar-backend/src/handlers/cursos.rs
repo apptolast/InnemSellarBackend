@@ -11,11 +11,11 @@
 //! indica a Swagger UI que muestren un candado y permitan introducir un JWT
 //! para probar el endpoint directamente desde la documentacion.
 
+use crate::models::enums::OrigenContenido;
 use salvo::oapi::extract::{JsonBody, PathParam, QueryParam};
 use salvo::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::models::enums::OrigenContenido;
 
 use crate::errors::AppError;
 use crate::repositories::curso_repo::{ActualizarCursoDto, CrearCursoDto};
