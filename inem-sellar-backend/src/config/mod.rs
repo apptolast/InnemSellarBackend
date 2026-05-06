@@ -54,6 +54,21 @@ pub struct AppConfig {
     /// Default: 15 minutos. El frontend debe refrescar antes de que expire.
     #[serde(default = "default_jwt_expiracion")]
     pub jwt_expiracion_minutos: u64,
+
+    /// Identificador del proyecto de Firebase (`projectId` de la consola).
+    ///
+    /// # Por que es obligatorio y no tiene default
+    /// El verificador de Firebase ID Tokens valida que el claim `aud` (audience)
+    /// del token coincida EXACTAMENTE con este valor, y que el claim `iss` sea
+    /// `https://securetoken.google.com/<project_id>`. Si arrancamos el servidor
+    /// con un valor incorrecto o vacio, todos los logins con Firebase fallarian
+    /// silenciosamente con 401. Es preferible un panic claro al arranque.
+    ///
+    /// # De donde sale
+    /// Es el mismo `project_id` que figura en `google-services.json` (Android)
+    /// y `GoogleService-Info.plist` (iOS) del cliente Flutter.
+    /// Se lee de la variable de entorno `FIREBASE_PROJECT_ID`.
+    pub firebase_project_id: String,
 }
 
 /// Duracion por defecto del access token: 15 minutos.

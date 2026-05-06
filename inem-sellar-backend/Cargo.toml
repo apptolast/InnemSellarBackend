@@ -29,3 +29,11 @@ argon2 = "0.5"
 jsonwebtoken = "9"
 sha2 = "0.10"
 rand = "0.8"
+# `reqwest` se usa exclusivamente para descargar el JWKS publico de Google
+# necesario para verificar Firebase ID Tokens (RS256). Configuracion:
+#   - `default-features = false`: desactiva el backend TLS por defecto (OpenSSL),
+#      que requiere libssl-dev en el sistema y complica el Docker build.
+#   - `rustls-tls`: backend TLS escrito 100% en Rust, consistente con el feature
+#     `runtime-tokio-rustls` que ya usa sea-orm. Sin dependencias C nativas.
+#   - `json`: habilita `Response::json::<T>()` para deserializar el JWKS de Google.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

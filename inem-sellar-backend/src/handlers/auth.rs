@@ -13,8 +13,27 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::repositories::{AuthRepo, SeaAuthRepo};
-use crate::services::AuthService;
+use crate::models::{proveedor_autenticacion, usuario};
+use crate::repositories::{
+    AuthRepo, ProveedorAutenticacionRepo, SeaAuthRepo, SeaProveedorAutenticacionRepo,
+};
+use crate::services::firebase_verifier::FirebaseClaims;
+use crate::services::{AuthService, FirebaseVerifier};
+
+// ─── Constantes de proveedores ───────────────────────────────────
+// Centralizadas para evitar typos y facilitar busquedas en el codigo.
+
+/// Identificador del proveedor en la tabla `proveedores_autenticacion`
+/// para logins via Firebase (Google y futuros providers federados).
+const PROVEEDOR_FIREBASE: &str = "firebase";
+
+/// Identificador del proveedor en la tabla `proveedores_autenticacion`
+/// para usuarios anonimos creados con `/auth/anonimo`.
+const PROVEEDOR_ANONYMOUS: &str = "anonymous";
+
+/// Etiqueta legible para el frontend en `UsuarioResponse.proveedor`
+/// en flujos email/password.
+const ETIQUETA_PROVEEDOR_EMAIL: &str = "email";
 
 // ─── DTOs (Data Transfer Objects) ────────────────────────────────
 // Structs que definen la forma del JSON de entrada y salida.
@@ -60,6 +79,31 @@ pub struct LogoutRequest {
     pub refresh_token: String,
 }
 
+/// Body del POST /api/v1/auth/firebase
+///
+/// La app cliente completa el login con FirebaseAuth (Google Sign-In,
+/// password de Firebase, etc.) y obtiene un ID Token JWT firmado por
+/// Google con RS256. Lo envia tal cual en este campo.
+#[derive(Deserialize, ToSchema)]
+pub struct FirebaseLoginRequest {
+    /// ID Token JWT obtenido en el cliente con
+    /// `FirebaseUser.getIdToken(forceRefresh = false)` (KMP / Flutter).
+    /// El backend lo verifica criptograficamente contra los JWKS de Google.
+    pub id_token: String,
+}
+
+/// Body del POST /api/v1/auth/anonimo
+///
+/// Permite enviar un identificador opcional del dispositivo para
+/// trazabilidad (queda en `proveedores_autenticacion.datos_proveedor`).
+/// Si el cliente no quiere mandar nada, basta con `{}`.
+#[derive(Deserialize, ToSchema, Default)]
+pub struct AnonimoLoginRequest {
+    /// Identificador opcional del dispositivo (installation id, IMEI, UUID...).
+    /// Solo se usa para diagnosticos — no es PII si es un UUID generado en cliente.
+    pub device_id: Option<String>,
+}
+
 /// Respuesta de registro y login — contiene tokens + datos basicos del usuario.
 ///
 /// # Por que `Serialize` y `ToSchema`
@@ -78,14 +122,36 @@ pub struct AuthResponse {
 }
 
 /// Datos publicos del usuario (sin hash_contrasena).
+///
+/// # Por que campos nullable adicionales
+/// Esta struct la consumen TRES flujos diferentes:
+///   - email/password: tiene email y nombre, no avatar de proveedor.
+///   - Firebase/Google: tiene email, nombre y avatar de Google.
+///   - Anonimo: no tiene email ni nombre.
+///
+/// Todos los campos identitarios son `Option` para que el cliente reciba
+/// `null` en JSON y pueda tomar decisiones de UI sin romperse.
 #[derive(Serialize, ToSchema)]
 pub struct UsuarioResponse {
     /// UUID del usuario en la base de datos.
     pub id: Uuid,
-    /// Email del usuario. Puede ser None si se registro solo con OAuth.
+    /// Email del usuario. `None` para anonimos y para OAuth sin email.
     pub email: Option<String>,
-    /// Nombre visible publicamente. Puede ser None si no lo proporcionó.
+    /// Nombre visible publicamente. `None` si no se proporciono.
     pub nombre_visible: Option<String>,
+    /// URL del avatar. Procede del proveedor (ej: foto de Google) o del
+    /// perfil que el propio usuario subio. `None` si no hay foto.
+    pub url_avatar: Option<String>,
+    /// Etiqueta legible del proveedor que autentico al usuario en ESTE login:
+    /// `"email"` | `"firebase"` | `"anonymous"`. Util para que el cliente sepa
+    /// que tipo de login refrescar.
+    pub proveedor: Option<String>,
+    /// `true` si el usuario es anonimo. El cliente lo usa para mostrar el
+    /// flujo "completar registro".
+    pub anonimo: bool,
+    /// `true` si el proveedor (Google, etc.) verifico el email. `None` si no
+    /// aplica (anonimos, email/password sin verificacion).
+    pub email_verificado: Option<bool>,
 }
 
 /// Respuesta de refrescar — solo tokens nuevos.
@@ -102,6 +168,72 @@ pub struct TokenResponse {
 pub struct MensajeResponse {
     /// Mensaje descriptivo de la operacion realizada.
     pub mensaje: String,
+}
+
+// ─── Helpers privados ────────────────────────────────────────────
+
+/// Construye un `UsuarioResponse` a partir del modelo de BD y el contexto
+/// del login en curso (proveedor, flag anonimo, email verificado).
+///
+/// Centraliza la transformacion para que cualquier nuevo flujo de login
+/// devuelva un response consistente con los demas. Los handlers solo
+/// pasan el contexto que conocen (proveedor del login actual, etc.).
+fn construir_usuario_response(
+    user: &usuario::Model,
+    proveedor: &str,
+    anonimo: bool,
+    email_verificado: Option<bool>,
+) -> UsuarioResponse {
+    UsuarioResponse {
+        id: user.id,
+        email: user.email.clone(),
+        nombre_visible: user.nombre_visible.clone(),
+        url_avatar: user.url_avatar.clone(),
+        proveedor: Some(proveedor.to_string()),
+        anonimo,
+        email_verificado,
+    }
+}
+
+/// Construye el `datos_proveedor` JSONB para una fila Firebase a partir
+/// de los claims verificados del ID Token.
+///
+/// # Que se guarda
+/// Solo claims publicos (no la firma) que tengan utilidad operativa:
+///   - `sign_in_provider`: distingue google.com / apple.com / etc.
+///   - `email_verified`: para auditar account-linking en disputas.
+///   - `name`, `picture`: snapshot del perfil al momento del login.
+///   - `identities`: util si en el futuro un mismo usuario vincula
+///     varios providers (Google + Apple) — el `firebase_uid` no cambia
+///     pero las identidades si.
+///   - `auth_time`: cuando el usuario realmente autentico (puede ser
+///     anterior al `iat` si refresco con un session cookie).
+///   - `tenant`: para multitenancy (no usado en InemSellar pero lo
+///     guardamos por si acaso).
+///
+/// # Que NO se guarda
+/// El `id_token` original NUNCA. Es un secreto de corta vida que no
+/// debe persistir. Si se filtrara la BD, no se podria suplantar al
+/// usuario con estos datos solos.
+fn construir_datos_proveedor_firebase(claims: &FirebaseClaims) -> serde_json::Value {
+    serde_json::json!({
+        "sign_in_provider": claims.firebase.sign_in_provider,
+        "email_verified": claims.email_verified,
+        "name": claims.name,
+        "picture": claims.picture,
+        "identities": claims.firebase.identities,
+        "auth_time": claims.auth_time,
+        "tenant": claims.firebase.tenant,
+    })
+}
+
+/// Lee de forma defensiva el header `User-Agent` de la peticion para
+/// usarlo como `informacion_dispositivo` al guardar el refresh token.
+///
+/// Devuelve `None` si el header esta ausente o no es ASCII parseable.
+fn extraer_user_agent(req: &Request) -> Option<String> {
+    req.header::<String>("user-agent")
+        .filter(|s| !s.trim().is_empty())
 }
 
 // ─── Handlers ────────────────────────────────────────────────────
@@ -130,6 +262,7 @@ pub struct MensajeResponse {
 /// Con `req.parse_json()`, Salvo no puede inferir el tipo del body para documentarlo.
 #[endpoint(tags("Auth"))]
 pub async fn registro(
+    req: &mut Request,
     body: JsonBody<RegistroRequest>,
     depot: &mut Depot,
 ) -> Result<Json<AuthResponse>, AppError> {
@@ -158,26 +291,25 @@ pub async fn registro(
     let refresh_raw = auth_service.generar_refresh_token();
     let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
 
-    // Guardar refresh token en BD (expira en 30 dias)
+    // Guardar refresh token en BD (expira en 30 dias). El User-Agent ayuda
+    // a auditar desde que dispositivo se creo la sesion (visible en BD).
     let expira = (Utc::now() + Duration::days(30)).fixed_offset();
+    let user_agent = extraer_user_agent(req);
     auth_repo
-        .guardar_refresh_token(usuario.id, &refresh_hash, None, expira)
+        .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
         .await?;
 
     Ok(Json(AuthResponse {
         access_token,
         refresh_token: refresh_raw,
-        usuario: UsuarioResponse {
-            id: usuario.id,
-            email: usuario.email.clone(),
-            nombre_visible: usuario.nombre_visible.clone(),
-        },
+        usuario: construir_usuario_response(&usuario, ETIQUETA_PROVEEDOR_EMAIL, false, None),
     }))
 }
 
 /// POST /api/v1/auth/login — Iniciar sesion.
 #[endpoint(tags("Auth"))]
 pub async fn login(
+    req: &mut Request,
     body: JsonBody<LoginRequest>,
     depot: &mut Depot,
 ) -> Result<Json<AuthResponse>, AppError> {
@@ -196,7 +328,8 @@ pub async fn login(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    // Verificar contrasena
+    // Verificar contrasena. Si el usuario no tiene hash (porque solo se
+    // registro via OAuth/Firebase), tampoco puede loguearse por aqui.
     let hash = usuario
         .hash_contrasena
         .as_deref()
@@ -214,18 +347,15 @@ pub async fn login(
     let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
 
     let expira = (Utc::now() + Duration::days(30)).fixed_offset();
+    let user_agent = extraer_user_agent(req);
     auth_repo
-        .guardar_refresh_token(usuario.id, &refresh_hash, None, expira)
+        .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
         .await?;
 
     Ok(Json(AuthResponse {
         access_token,
         refresh_token: refresh_raw,
-        usuario: UsuarioResponse {
-            id: usuario.id,
-            email: usuario.email.clone(),
-            nombre_visible: usuario.nombre_visible.clone(),
-        },
+        usuario: construir_usuario_response(&usuario, ETIQUETA_PROVEEDOR_EMAIL, false, None),
     }))
 }
 
@@ -237,6 +367,7 @@ pub async fn login(
 /// solo tiene una ventana corta antes de que el token se invalide.
 #[endpoint(tags("Auth"))]
 pub async fn refrescar(
+    req: &mut Request,
     body: JsonBody<RefrescarRequest>,
     depot: &mut Depot,
 ) -> Result<Json<TokenResponse>, AppError> {
@@ -247,6 +378,10 @@ pub async fn refrescar(
     let auth_repo = depot
         .obtain::<SeaAuthRepo>()
         .map_err(|_| AppError::Internal("AuthRepo no disponible".into()))?
+        .clone();
+    let proveedor_repo = depot
+        .obtain::<SeaProveedorAutenticacionRepo>()
+        .map_err(|_| AppError::Internal("ProveedorAutenticacionRepo no disponible".into()))?
         .clone();
 
     // Hashear el refresh token recibido y buscarlo en BD
@@ -266,14 +401,26 @@ pub async fn refrescar(
     // Revocar el token anterior (rotacion)
     auth_repo.revocar_refresh_token(token_db.id).await?;
 
-    // Generar nuevo par de tokens
-    let access_token = auth_service.generar_access_token(token_db.id_usuario)?;
+    // Preservar el flag `anonimo` al rotar: consultamos si el usuario tiene
+    // una identidad `proveedor='anonymous'`. Asi un anonimo que refresca
+    // sigue siendo anonimo en el nuevo access_token.
+    let es_anonimo = proveedor_repo.es_anonimo(token_db.id_usuario).await?;
+
+    // Generar nuevo par de tokens manteniendo el flag.
+    let access_token =
+        auth_service.generar_access_token_con_flag(token_db.id_usuario, es_anonimo)?;
     let new_refresh_raw = auth_service.generar_refresh_token();
     let new_refresh_hash = auth_service.hashear_refresh_token(&new_refresh_raw);
 
     let expira = (Utc::now() + Duration::days(30)).fixed_offset();
+    let user_agent = extraer_user_agent(req);
     auth_repo
-        .guardar_refresh_token(token_db.id_usuario, &new_refresh_hash, None, expira)
+        .guardar_refresh_token(
+            token_db.id_usuario,
+            &new_refresh_hash,
+            user_agent.as_deref(),
+            expira,
+        )
         .await?;
 
     Ok(Json(TokenResponse {
@@ -315,5 +462,282 @@ pub async fn logout(
 
     Ok(Json(MensajeResponse {
         mensaje: "Sesion cerrada".into(),
+    }))
+}
+
+// ─── Login con Firebase (Google + futuros providers) ─────────────
+
+/// POST /api/v1/auth/firebase — Login con Firebase ID Token.
+///
+/// La app cliente completa el login con Google via FirebaseAuth y obtiene
+/// un ID Token JWT firmado por Google. El backend lo verifica contra los
+/// JWKS de Google y, si es valido:
+///   - Si el `firebase_uid` ya existe en `proveedores_autenticacion`:
+///     carga al usuario, refresca avatar/nombre si los tenia vacios,
+///     actualiza `datos_proveedor` con el nuevo snapshot.
+///   - Si no existe pero hay un usuario con el mismo email:
+///     - Si Firebase certifica `email_verified=true`: vincula la identidad
+///       Google al usuario existente (account-linking automatico).
+///     - Si `email_verified=false`: 409 Conflict — exige login email/password
+///       primero para vincular manualmente.
+///   - Si no existe usuario con ese email (o email es None): crea un usuario
+///     OAuth nuevo y la identidad Firebase asociada.
+///
+/// # Por que rechazamos `sign_in_provider="anonymous"`
+/// Los anonimos tienen su propio endpoint `/auth/anonimo`. Si llegasen aqui,
+/// crearian usuarios con `firebase_uid` pero sin email — un estado raro.
+/// Es mas claro mantener la separacion: este endpoint es para identidades
+/// federadas (Google), `/auth/anonimo` para anonimos puros.
+///
+/// # Codigos de error
+/// - 400: `id_token` vacio.
+/// - 401: token invalido (firma, expirado, audience, issuer, kid desconocido).
+/// - 409: account linking bloqueado por `email_verified=false`.
+/// - 500: fallo al descargar JWKS de Google o error de BD.
+#[endpoint(tags("Auth"))]
+pub async fn login_firebase(
+    req: &mut Request,
+    body: JsonBody<FirebaseLoginRequest>,
+    depot: &mut Depot,
+) -> Result<Json<AuthResponse>, AppError> {
+    // ── 1. Extraer servicios y repos del Depot ──
+    let auth_service = depot
+        .obtain::<AuthService>()
+        .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
+        .clone();
+    let firebase = depot
+        .obtain::<FirebaseVerifier>()
+        .map_err(|_| AppError::Internal("FirebaseVerifier no disponible".into()))?
+        .clone();
+    let auth_repo = depot
+        .obtain::<SeaAuthRepo>()
+        .map_err(|_| AppError::Internal("AuthRepo no disponible".into()))?
+        .clone();
+    let proveedor_repo = depot
+        .obtain::<SeaProveedorAutenticacionRepo>()
+        .map_err(|_| AppError::Internal("ProveedorAutenticacionRepo no disponible".into()))?
+        .clone();
+
+    // ── 2. Validar input minimo ──
+    if body.id_token.trim().is_empty() {
+        return Err(AppError::BadRequest("id_token es obligatorio".into()));
+    }
+
+    // ── 3. Verificar el ID Token de Firebase (criptografia + claims) ──
+    let claims = firebase.verify(&body.id_token).await?;
+
+    // Aceptamos solo Google por ahora. Anonymous va por /auth/anonimo;
+    // Apple/etc. se anadiran cuando el cliente los soporte.
+    if claims.is_anonymous() {
+        return Err(AppError::BadRequest(
+            "para usuarios anonimos usa POST /api/v1/auth/anonimo".into(),
+        ));
+    }
+    if !claims.is_google() {
+        tracing::warn!(
+            provider = %claims.firebase.sign_in_provider,
+            "sign_in_provider de Firebase no soportado todavia"
+        );
+        return Err(AppError::BadRequest(format!(
+            "proveedor `{}` no soportado todavia",
+            claims.firebase.sign_in_provider
+        )));
+    }
+
+    // ── 4. Resolver el usuario (upsert + account-linking) ──
+    let usuario = upsert_usuario_firebase(&auth_repo, &proveedor_repo, &claims).await?;
+
+    // ── 5. Marcar ultimo login y refrescar perfil con los datos de Google ──
+    auth_repo.actualizar_ultimo_login(usuario.id).await?;
+    auth_repo
+        .enriquecer_perfil_si_vacio(
+            usuario.id,
+            claims.name.as_deref(),
+            claims.picture.as_deref(),
+        )
+        .await?;
+
+    // ── 6. Emitir tokens propios del backend (HS256) ──
+    let access_token = auth_service.generar_access_token_con_flag(usuario.id, false)?;
+    let refresh_raw = auth_service.generar_refresh_token();
+    let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
+    let expira = (Utc::now() + Duration::days(30)).fixed_offset();
+    let user_agent = extraer_user_agent(req);
+    auth_repo
+        .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
+        .await?;
+
+    // ── 7. Recargar el usuario (puede haber cambiado `nombre_visible` / `url_avatar`) ──
+    let usuario_final = auth_repo
+        .buscar_usuario_por_id(usuario.id)
+        .await?
+        .unwrap_or(usuario);
+
+    Ok(Json(AuthResponse {
+        access_token,
+        refresh_token: refresh_raw,
+        usuario: construir_usuario_response(
+            &usuario_final,
+            PROVEEDOR_FIREBASE,
+            false,
+            claims.email_verified,
+        ),
+    }))
+}
+
+/// Resuelve a que usuario corresponde un login Firebase, creando o
+/// vinculando segun haga falta.
+///
+/// Extraida del handler para mantener el flujo principal legible.
+async fn upsert_usuario_firebase(
+    auth_repo: &SeaAuthRepo,
+    proveedor_repo: &SeaProveedorAutenticacionRepo,
+    claims: &FirebaseClaims,
+) -> Result<usuario::Model, AppError> {
+    let datos = construir_datos_proveedor_firebase(claims);
+
+    // 1. Existe ya esta identidad Firebase?
+    if let Some(prov) = proveedor_repo
+        .buscar_por_proveedor_e_identificador(PROVEEDOR_FIREBASE, &claims.sub)
+        .await?
+    {
+        // Identidad ya conocida: refresca el snapshot del proveedor y
+        // devuelve el usuario asociado.
+        proveedor_repo
+            .actualizar_datos(prov.id, claims.email.as_deref(), Some(datos))
+            .await?;
+        return cargar_usuario_obligatorio(auth_repo, prov.id_usuario).await;
+    }
+
+    // 2. No existe la identidad Firebase. Si hay email, intentar account-linking.
+    if let Some(email) = claims.email.as_deref()
+        && let Some(usuario_existente) = auth_repo.buscar_por_email(email).await?
+    {
+        // Politica: solo enlazar automaticamente si Google certifica el email.
+        // Sin verified=true podria un atacante registrar un proveedor OAuth
+        // con un email ajeno y apoderarse de la cuenta local.
+        if claims.email_verified != Some(true) {
+            return Err(AppError::Conflict(
+                "ya existe una cuenta con este email; verifica el email en Google y reintenta o \
+                 inicia sesion con email/contrasena para vincular Google manualmente"
+                    .into(),
+            ));
+        }
+        crear_proveedor_firebase(proveedor_repo, usuario_existente.id, claims, datos).await?;
+        return Ok(usuario_existente);
+    }
+
+    // 3. Es un usuario nuevo (no encontrado por firebase_uid ni por email).
+    let usuario_nuevo = auth_repo
+        .crear_usuario_oauth(
+            claims.email.as_deref(),
+            claims.name.as_deref(),
+            claims.picture.as_deref(),
+        )
+        .await?;
+    crear_proveedor_firebase(proveedor_repo, usuario_nuevo.id, claims, datos).await?;
+    Ok(usuario_nuevo)
+}
+
+/// Helper para insertar la fila en `proveedores_autenticacion` de Firebase.
+async fn crear_proveedor_firebase(
+    proveedor_repo: &SeaProveedorAutenticacionRepo,
+    id_usuario: Uuid,
+    claims: &FirebaseClaims,
+    datos: serde_json::Value,
+) -> Result<proveedor_autenticacion::Model, AppError> {
+    proveedor_repo
+        .crear(
+            id_usuario,
+            PROVEEDOR_FIREBASE,
+            Some(&claims.sub),
+            claims.email.as_deref(),
+            Some(datos),
+        )
+        .await
+}
+
+/// Carga un usuario por id devolviendo `Internal` si no existe — protege
+/// contra inconsistencias: si una fila de `proveedores_autenticacion`
+/// apunta a un usuario que ya no existe, es un bug, no un 401.
+async fn cargar_usuario_obligatorio(
+    auth_repo: &SeaAuthRepo,
+    id: Uuid,
+) -> Result<usuario::Model, AppError> {
+    auth_repo
+        .buscar_usuario_por_id(id)
+        .await?
+        .ok_or_else(|| AppError::Internal(format!("usuario {id} referenciado pero inexistente")))
+}
+
+// ─── Login anonimo ──────────────────────────────────────────────
+
+/// POST /api/v1/auth/anonimo — Crear sesion anonima.
+///
+/// Genera un usuario nuevo sin email ni password y devuelve el mismo
+/// shape de `AuthResponse` que `/auth/login`. El JWT propio incluye
+/// `anonimo=true` para que el cliente sepa que el usuario aun no se
+/// ha completado.
+///
+/// # Por que sin verificacion de Firebase
+/// El cliente Flutter usa `signInAnonymously` de Firebase, pero el ID Token
+/// resultante no aporta nada al backend (no hay email, no hay nombre, solo
+/// un `firebase_uid` aleatorio que no podemos reusar entre dispositivos).
+/// Es mas simple y robusto crear el usuario backend-side sin ese paso —
+/// si el cliente quiere persistir la identidad anonima, basta con guardar
+/// el `refresh_token` que devolvemos.
+///
+/// # Por que un metodo POST sin body util
+/// El body es opcional. Si el cliente envia `device_id`, lo guardamos como
+/// referencia (util para soporte). Si no, basta con `{}` o `{"device_id": null}`.
+#[endpoint(tags("Auth"))]
+pub async fn login_anonimo(
+    req: &mut Request,
+    body: JsonBody<AnonimoLoginRequest>,
+    depot: &mut Depot,
+) -> Result<Json<AuthResponse>, AppError> {
+    let auth_service = depot
+        .obtain::<AuthService>()
+        .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
+        .clone();
+    let auth_repo = depot
+        .obtain::<SeaAuthRepo>()
+        .map_err(|_| AppError::Internal("AuthRepo no disponible".into()))?
+        .clone();
+    let proveedor_repo = depot
+        .obtain::<SeaProveedorAutenticacionRepo>()
+        .map_err(|_| AppError::Internal("ProveedorAutenticacionRepo no disponible".into()))?
+        .clone();
+
+    // ── 1. Crear usuario anonimo en `usuarios` ──
+    let usuario = auth_repo.crear_usuario_anonimo().await?;
+
+    // ── 2. Crear identidad anonima en `proveedores_autenticacion` ──
+    // El `device_id` queda registrado como JSONB para soporte / diagnosticos.
+    let datos = body
+        .device_id
+        .as_deref()
+        .map(|d| serde_json::json!({ "device_id": d }));
+    proveedor_repo
+        .crear(usuario.id, PROVEEDOR_ANONYMOUS, None, None, datos)
+        .await?;
+
+    // ── 3. Actualizar ultimo_login (consistencia con el resto de flujos) ──
+    auth_repo.actualizar_ultimo_login(usuario.id).await?;
+
+    // ── 4. Emitir tokens marcando `anonimo=true` ──
+    let access_token = auth_service.generar_access_token_con_flag(usuario.id, true)?;
+    let refresh_raw = auth_service.generar_refresh_token();
+    let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
+    let expira = (Utc::now() + Duration::days(30)).fixed_offset();
+    let user_agent = extraer_user_agent(req);
+    auth_repo
+        .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
+        .await?;
+
+    Ok(Json(AuthResponse {
+        access_token,
+        refresh_token: refresh_raw,
+        usuario: construir_usuario_response(&usuario, PROVEEDOR_ANONYMOUS, true, None),
     }))
 }

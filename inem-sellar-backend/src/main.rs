@@ -33,9 +33,10 @@ use salvo::prelude::*;
 
 use crate::repositories::{
     SeaAuthRepo, SeaConfiguracionRepo, SeaConsejoRepo, SeaCursoRepo, SeaGeografiaRepo,
-    SeaOfertaRepo, SeaPrestacionRepo, SeaReporteRepo, SeaUsuarioRepo, SeaVotoRepo,
+    SeaOfertaRepo, SeaPrestacionRepo, SeaProveedorAutenticacionRepo, SeaReporteRepo,
+    SeaUsuarioRepo, SeaVotoRepo,
 };
-use crate::services::AuthService;
+use crate::services::{AuthService, FirebaseVerifier};
 
 /// Handler basico que responde con "Hello World".
 ///
@@ -96,8 +97,13 @@ async fn main() {
 
     // Creamos servicios y repositorios, inyectando la conexion.
     let auth_service = AuthService::new(cfg.jwt_secret.clone(), cfg.jwt_expiracion_minutos);
+    // Verificador de Firebase ID Tokens. Se construye con el `project_id`
+    // que valida en cada token entrante. El cache de JWKS de Google se
+    // poblara perezosamente en el primer login Firebase.
+    let firebase_verifier = FirebaseVerifier::new(cfg.firebase_project_id.clone());
     let geo_repo = SeaGeografiaRepo::new(db.clone());
     let auth_repo = SeaAuthRepo::new(db.clone());
+    let proveedor_autenticacion_repo = SeaProveedorAutenticacionRepo::new(db.clone());
     let oferta_repo = SeaOfertaRepo::new(db.clone());
     let consejo_repo = SeaConsejoRepo::new(db.clone());
     let curso_repo = SeaCursoRepo::new(db.clone());
@@ -118,8 +124,10 @@ async fn main() {
     let router = Router::new()
         .get(hello)
         .hoop(affix_state::inject(auth_service))
+        .hoop(affix_state::inject(firebase_verifier))
         .hoop(affix_state::inject(geo_repo))
         .hoop(affix_state::inject(auth_repo))
+        .hoop(affix_state::inject(proveedor_autenticacion_repo))
         .hoop(affix_state::inject(oferta_repo))
         .hoop(affix_state::inject(consejo_repo))
         .hoop(affix_state::inject(curso_repo))

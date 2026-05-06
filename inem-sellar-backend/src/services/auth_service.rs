@@ -23,6 +23,17 @@ use crate::errors::AppError;
 /// `sub` (subject) es el claim estandar de JWT (RFC 7519) para identificar
 /// al sujeto del token. Usar nombres estandar facilita la interoperabilidad
 /// con librerias y servicios externos.
+///
+/// # Por que `anonimo: bool` con `#[serde(default)]`
+/// Distingue entre usuarios "completos" (registro con email/password o login
+/// con Google) y usuarios "anonimos" (creados via `/auth/anonimo` o login
+/// anonimo de Firebase). El cliente mobile lo usa para decidir si mostrar
+/// el flujo "completar registro".
+///
+/// `#[serde(default)]` garantiza retrocompatibilidad: los tokens emitidos
+/// ANTES de anadir este campo no llevan `anonimo` en el JSON; al deserializar
+/// usaran `false` automaticamente, lo que es el valor correcto para los flujos
+/// previos (email/password no son anonimos).
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     /// UUID del usuario como string
@@ -31,6 +42,11 @@ pub struct Claims {
     pub exp: usize,
     /// Timestamp de emision
     pub iat: usize,
+    /// `true` si el token corresponde a un usuario anonimo.
+    /// El default `false` se aplica si el campo no esta presente (tokens
+    /// emitidos antes de la integracion con Firebase).
+    #[serde(default)]
+    pub anonimo: bool,
 }
 
 /// Servicio de autenticacion — encapsula toda la criptografia y logica de tokens.
@@ -88,13 +104,37 @@ impl AuthService {
             .is_ok())
     }
 
-    /// Genera un access token JWT firmado con HS256.
+    /// Genera un access token JWT firmado con HS256 para un usuario NO anonimo.
+    ///
+    /// Wrapper retrocompatible sobre `generar_access_token_con_flag(.., false)`.
+    /// Los flujos email/password siguen llamando a este metodo sin cambios.
     ///
     /// # Flujo
-    /// 1. Crea los claims (sub=uuid, exp=ahora+15min, iat=ahora)
+    /// 1. Crea los claims (sub=uuid, exp=ahora+15min, iat=ahora, anonimo=false)
     /// 2. Firma con HS256 usando jwt_secret
     /// 3. Devuelve el token como string (header.payload.signature)
     pub fn generar_access_token(&self, id_usuario: Uuid) -> Result<String, AppError> {
+        self.generar_access_token_con_flag(id_usuario, false)
+    }
+
+    /// Genera un access token JWT marcando si el usuario es anonimo.
+    ///
+    /// Usado por:
+    ///   - `/auth/firebase` con `anonimo=false` (login Google).
+    ///   - `/auth/anonimo` con `anonimo=true` (sesion anonima).
+    ///   - `registro`/`login` (email/password) con `anonimo=false` via wrapper.
+    ///
+    /// # Por que `anonimo` va en el JWT y no se consulta la BD en cada request
+    /// El JWT se valida sin tocar BD (criptografia pura). Si tuvieramos que
+    /// consultar la BD para saber si el usuario es anonimo, anadiriamos una
+    /// query a CADA request protegida — innecesario porque el flag no cambia
+    /// hasta que el usuario "se complete" (futuro endpoint `/auth/upgrade`),
+    /// momento en el que se emite un nuevo JWT con `anonimo=false`.
+    pub fn generar_access_token_con_flag(
+        &self,
+        id_usuario: Uuid,
+        anonimo: bool,
+    ) -> Result<String, AppError> {
         let ahora = Utc::now();
         let expiracion = ahora + Duration::minutes(self.jwt_expiracion_minutos as i64);
 
@@ -102,6 +142,7 @@ impl AuthService {
             sub: id_usuario.to_string(),
             exp: expiracion.timestamp() as usize,
             iat: ahora.timestamp() as usize,
+            anonimo,
         };
 
         encode(
