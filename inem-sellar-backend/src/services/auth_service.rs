@@ -1,13 +1,10 @@
 // src/services/auth_service.rs
 //
-// Logica de negocio de autenticacion: hash de contrasenas, JWT, refresh tokens.
+// Logica de negocio de autenticacion: JWT propios + refresh tokens.
+// La verificacion de Firebase ID Tokens vive en `firebase_verifier.rs`.
 // NO accede a la BD — eso lo hace el repositorio.
 // NO maneja HTTP — eso lo hace el handler.
 
-use argon2::{
-    Argon2,
-    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString, rand_core::OsRng},
-};
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::Rng;
@@ -25,15 +22,13 @@ use crate::errors::AppError;
 /// con librerias y servicios externos.
 ///
 /// # Por que `anonimo: bool` con `#[serde(default)]`
-/// Distingue entre usuarios "completos" (registro con email/password o login
-/// con Google) y usuarios "anonimos" (creados via `/auth/anonimo` o login
-/// anonimo de Firebase). El cliente mobile lo usa para decidir si mostrar
-/// el flujo "completar registro".
+/// Distingue entre usuarios "completos" (Firebase google.com / password)
+/// y usuarios "anonimos" (Firebase Anonymous). El cliente lo usa para
+/// decidir si mostrar el flujo "completar registro".
 ///
 /// `#[serde(default)]` garantiza retrocompatibilidad: los tokens emitidos
-/// ANTES de anadir este campo no llevan `anonimo` en el JSON; al deserializar
-/// usaran `false` automaticamente, lo que es el valor correcto para los flujos
-/// previos (email/password no son anonimos).
+/// ANTES de anadir este campo no llevan `anonimo` en el JSON; al
+/// deserializar usaran `false` automaticamente.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     /// UUID del usuario como string
@@ -75,54 +70,14 @@ impl AuthService {
         }
     }
 
-    /// Hashea una contrasena con Argon2id.
-    ///
-    /// # Por que Argon2id y no bcrypt
-    /// Argon2id es el ganador de la Password Hashing Competition (PHC).
-    /// Es resistente tanto a ataques GPU como a ataques side-channel.
-    /// bcrypt tiene un limite de 72 bytes en la contrasena; Argon2 no.
-    ///
-    /// # Por que generar un salt aleatorio cada vez
-    /// El salt previene ataques de rainbow tables. Cada contrasena tiene
-    /// su propio salt unico, incluido en el hash resultante. Al verificar,
-    /// Argon2 extrae el salt del hash almacenado.
-    pub fn hashear_contrasena(&self, contrasena: &str) -> Result<String, AppError> {
-        let salt = SaltString::generate(&mut OsRng);
-        let argon2 = Argon2::default();
-        let hash = argon2
-            .hash_password(contrasena.as_bytes(), &salt)
-            .map_err(|e| AppError::Internal(format!("Error hasheando contrasena: {e}")))?;
-        Ok(hash.to_string())
-    }
-
-    /// Verifica una contrasena contra un hash Argon2id almacenado.
-    pub fn verificar_contrasena(&self, contrasena: &str, hash: &str) -> Result<bool, AppError> {
-        let parsed_hash = PasswordHash::new(hash)
-            .map_err(|e| AppError::Internal(format!("Hash invalido: {e}")))?;
-        Ok(Argon2::default()
-            .verify_password(contrasena.as_bytes(), &parsed_hash)
-            .is_ok())
-    }
-
-    /// Genera un access token JWT firmado con HS256 para un usuario NO anonimo.
-    ///
-    /// Wrapper retrocompatible sobre `generar_access_token_con_flag(.., false)`.
-    /// Los flujos email/password siguen llamando a este metodo sin cambios.
-    ///
-    /// # Flujo
-    /// 1. Crea los claims (sub=uuid, exp=ahora+15min, iat=ahora, anonimo=false)
-    /// 2. Firma con HS256 usando jwt_secret
-    /// 3. Devuelve el token como string (header.payload.signature)
-    pub fn generar_access_token(&self, id_usuario: Uuid) -> Result<String, AppError> {
-        self.generar_access_token_con_flag(id_usuario, false)
-    }
-
-    /// Genera un access token JWT marcando si el usuario es anonimo.
+    /// Genera un access token JWT firmado con HS256 marcando si el usuario
+    /// es anonimo.
     ///
     /// Usado por:
-    ///   - `/auth/firebase` con `anonimo=false` (login Google).
-    ///   - `/auth/anonimo` con `anonimo=true` (sesion anonima).
-    ///   - `registro`/`login` (email/password) con `anonimo=false` via wrapper.
+    ///   - `/auth/firebase` con el flag derivado del `sign_in_provider`
+    ///     (`true` solo para Firebase Anonymous).
+    ///   - `/auth/refrescar` preservando el flag del usuario consultando
+    ///     `proveedor_repo.es_anonimo()`.
     ///
     /// # Por que `anonimo` va en el JWT y no se consulta la BD en cada request
     /// El JWT se valida sin tocar BD (criptografia pura). Si tuvieramos que

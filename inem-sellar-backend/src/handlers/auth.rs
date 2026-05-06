@@ -1,4 +1,9 @@
-//! Handlers de autenticacion: registro, login, refrescar, logout.
+//! Handlers de autenticacion: firebase (handshake unico), refrescar, logout.
+//!
+//! El cliente delega TODO el login en FirebaseAuth (Google, email/password,
+//! anonimo) y entrega el Firebase ID Token en `/auth/firebase`. El backend
+//! lo valida contra los JWKS de Google y emite sus propios tokens (JWT
+//! HS256 + refresh opaco), que son los que usan el resto de endpoints.
 //!
 //! Cada handler coordina servicio + repositorio, pero NO contiene
 //! logica de criptografia ni acceso a BD directamente.
@@ -20,54 +25,9 @@ use crate::repositories::{
 use crate::services::firebase_verifier::{FirebaseClaims, SignInProvider};
 use crate::services::{AuthService, FirebaseVerifier};
 
-// ─── Constantes de proveedores ───────────────────────────────────
-// Centralizadas para evitar typos y facilitar busquedas en el codigo.
-//
-// Para identidades Firebase (`/auth/firebase`) el provider se obtiene del
-// enum tipado `SignInProvider` (whitelist: google.com, password, anonymous);
-// estas constantes se usan SOLO en los flujos legacy email/password y
-// anonimo-sin-firebase, que se borraran en el siguiente paso del refactor.
-
-/// Identificador del proveedor en la tabla `proveedores_autenticacion`
-/// para usuarios anonimos creados con `/auth/anonimo` (legacy, sin
-/// Firebase). Coincide intencionalmente con el `sign_in_provider` de
-/// Firebase anonymous (`SignInProvider::Anonymous.as_str()`) para que
-/// el filtro `es_anonimo()` siga unificando ambas fuentes.
-const PROVEEDOR_ANONYMOUS: &str = "anonymous";
-
-/// Etiqueta legible para el frontend en `UsuarioResponse.proveedor`
-/// en flujos email/password legacy.
-const ETIQUETA_PROVEEDOR_EMAIL: &str = "email";
-
 // ─── DTOs (Data Transfer Objects) ────────────────────────────────
 // Structs que definen la forma del JSON de entrada y salida.
 // Son diferentes a las entidades de BD — solo exponen lo necesario.
-
-/// Body del POST /api/v1/auth/registro
-///
-/// # Por que `ToSchema`
-/// `ToSchema` es un trait de Salvo OAPI que le dice al generador de OpenAPI
-/// como representar este struct en la documentacion como un JSON Schema.
-/// Sin el, `#[endpoint]` no puede documentar el cuerpo de la peticion.
-/// Es como anotaciones `@JsonSerializable` en Dart pero para documentacion API.
-#[derive(Deserialize, ToSchema)]
-pub struct RegistroRequest {
-    /// Email del nuevo usuario. Debe ser unico en el sistema.
-    pub email: String,
-    /// Contrasena en texto plano. Se hashea con Argon2id antes de guardar.
-    pub contrasena: String,
-    /// Nombre que se mostrara publicamente. Opcional.
-    pub nombre_visible: Option<String>,
-}
-
-/// Body del POST /api/v1/auth/login
-#[derive(Deserialize, ToSchema)]
-pub struct LoginRequest {
-    /// Email registrado del usuario.
-    pub email: String,
-    /// Contrasena en texto plano para verificar contra el hash almacenado.
-    pub contrasena: String,
-}
 
 /// Body del POST /api/v1/auth/refrescar
 #[derive(Deserialize, ToSchema)]
@@ -96,19 +56,8 @@ pub struct FirebaseLoginRequest {
     pub id_token: String,
 }
 
-/// Body del POST /api/v1/auth/anonimo
-///
-/// Permite enviar un identificador opcional del dispositivo para
-/// trazabilidad (queda en `proveedores_autenticacion.datos_proveedor`).
-/// Si el cliente no quiere mandar nada, basta con `{}`.
-#[derive(Deserialize, ToSchema, Default)]
-pub struct AnonimoLoginRequest {
-    /// Identificador opcional del dispositivo (installation id, IMEI, UUID...).
-    /// Solo se usa para diagnosticos — no es PII si es un UUID generado en cliente.
-    pub device_id: Option<String>,
-}
-
-/// Respuesta de registro y login — contiene tokens + datos basicos del usuario.
+/// Respuesta del handshake `/auth/firebase` — contiene tokens propios
+/// (HS256) + datos basicos del usuario.
 ///
 /// # Por que `Serialize` y `ToSchema`
 /// `Serialize` (de serde) convierte el struct a JSON para la respuesta HTTP.
@@ -127,11 +76,12 @@ pub struct AuthResponse {
 
 /// Datos publicos del usuario (sin hash_contrasena).
 ///
-/// # Por que campos nullable adicionales
-/// Esta struct la consumen TRES flujos diferentes:
-///   - email/password: tiene email y nombre, no avatar de proveedor.
-///   - Firebase/Google: tiene email, nombre y avatar de Google.
-///   - Anonimo: no tiene email ni nombre.
+/// # Por que campos nullable
+/// Esta struct la consumen los 3 sub-flujos del handshake Firebase:
+///   - `google.com`: tiene email, nombre y avatar de Google.
+///   - `password` (Firebase Email/Password): tiene email; name/picture
+///     vienen del Firebase profile si el cliente los puso, opcionales.
+///   - `anonymous`: no tiene email ni nombre.
 ///
 /// Todos los campos identitarios son `Option` para que el cliente reciba
 /// `null` en JSON y pueda tomar decisiones de UI sin romperse.
@@ -139,16 +89,16 @@ pub struct AuthResponse {
 pub struct UsuarioResponse {
     /// UUID del usuario en la base de datos.
     pub id: Uuid,
-    /// Email del usuario. `None` para anonimos y para OAuth sin email.
+    /// Email del usuario. `None` para anonimos y para providers sin email.
     pub email: Option<String>,
     /// Nombre visible publicamente. `None` si no se proporciono.
     pub nombre_visible: Option<String>,
     /// URL del avatar. Procede del proveedor (ej: foto de Google) o del
     /// perfil que el propio usuario subio. `None` si no hay foto.
     pub url_avatar: Option<String>,
-    /// Etiqueta legible del proveedor que autentico al usuario en ESTE login:
-    /// `"email"` | `"firebase"` | `"anonymous"`. Util para que el cliente sepa
-    /// que tipo de login refrescar.
+    /// `sign_in_provider` literal de Firebase para ESTE login:
+    /// `"google.com"` | `"password"` | `"anonymous"`. El cliente lo usa
+    /// para decidir que pantalla de re-login mostrar si hace falta.
     pub proveedor: Option<String>,
     /// `true` si el usuario es anonimo. El cliente lo usa para mostrar el
     /// flujo "completar registro".
@@ -241,127 +191,6 @@ fn extraer_user_agent(req: &Request) -> Option<String> {
 }
 
 // ─── Handlers ────────────────────────────────────────────────────
-
-/// POST /api/v1/auth/registro — Crear cuenta nueva.
-///
-/// # Flujo
-/// 1. Parsear body JSON → RegistroRequest (via `JsonBody<T>` extractor)
-/// 2. Verificar que el email no exista (409 si ya existe)
-/// 3. Hashear la contrasena con Argon2id
-/// 4. Crear el usuario en la BD
-/// 5. Generar access token (JWT) + refresh token
-/// 6. Guardar hash del refresh token en BD
-/// 7. Devolver tokens + datos del usuario
-///
-/// # Por que `#[endpoint]` en vez de `#[handler]`
-/// `#[endpoint]` hace todo lo que hace `#[handler]` PERO ademas genera
-/// metadata OpenAPI (path, metodo HTTP, parametros, respuestas) que Salvo
-/// usa para construir la documentacion Swagger automaticamente.
-/// La diferencia es solo en tiempo de compilacion — el comportamiento
-/// en runtime es identico.
-///
-/// # Por que `JsonBody<RegistroRequest>` en vez de `req.parse_json()`
-/// `JsonBody<T>` es un "extractor" tipado de Salvo OAPI. Salvo lo detecta
-/// en la firma de la funcion y lo documenta como el body esperado en OpenAPI.
-/// Con `req.parse_json()`, Salvo no puede inferir el tipo del body para documentarlo.
-#[endpoint(tags("Auth"))]
-pub async fn registro(
-    req: &mut Request,
-    body: JsonBody<RegistroRequest>,
-    depot: &mut Depot,
-) -> Result<Json<AuthResponse>, AppError> {
-    let auth_service = depot
-        .obtain::<AuthService>()
-        .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
-        .clone();
-    let auth_repo = depot
-        .obtain::<SeaAuthRepo>()
-        .map_err(|_| AppError::Internal("AuthRepo no disponible".into()))?
-        .clone();
-
-    // Verificar que el email no este registrado
-    if auth_repo.buscar_por_email(&body.email).await?.is_some() {
-        return Err(AppError::Conflict("El email ya esta registrado".into()));
-    }
-
-    // Hashear contrasena y crear usuario
-    let hash = auth_service.hashear_contrasena(&body.contrasena)?;
-    let usuario = auth_repo
-        .crear_usuario(&body.email, &hash, body.nombre_visible.as_deref())
-        .await?;
-
-    // Generar tokens
-    let access_token = auth_service.generar_access_token(usuario.id)?;
-    let refresh_raw = auth_service.generar_refresh_token();
-    let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
-
-    // Guardar refresh token en BD (expira en 30 dias). El User-Agent ayuda
-    // a auditar desde que dispositivo se creo la sesion (visible en BD).
-    let expira = (Utc::now() + Duration::days(30)).fixed_offset();
-    let user_agent = extraer_user_agent(req);
-    auth_repo
-        .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
-        .await?;
-
-    Ok(Json(AuthResponse {
-        access_token,
-        refresh_token: refresh_raw,
-        usuario: construir_usuario_response(&usuario, ETIQUETA_PROVEEDOR_EMAIL, false, None),
-    }))
-}
-
-/// POST /api/v1/auth/login — Iniciar sesion.
-#[endpoint(tags("Auth"))]
-pub async fn login(
-    req: &mut Request,
-    body: JsonBody<LoginRequest>,
-    depot: &mut Depot,
-) -> Result<Json<AuthResponse>, AppError> {
-    let auth_service = depot
-        .obtain::<AuthService>()
-        .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
-        .clone();
-    let auth_repo = depot
-        .obtain::<SeaAuthRepo>()
-        .map_err(|_| AppError::Internal("AuthRepo no disponible".into()))?
-        .clone();
-
-    // Buscar usuario por email
-    let usuario = auth_repo
-        .buscar_por_email(&body.email)
-        .await?
-        .ok_or(AppError::Unauthorized)?;
-
-    // Verificar contrasena. Si el usuario no tiene hash (porque solo se
-    // registro via OAuth/Firebase), tampoco puede loguearse por aqui.
-    let hash = usuario
-        .hash_contrasena
-        .as_deref()
-        .ok_or(AppError::Unauthorized)?;
-    if !auth_service.verificar_contrasena(&body.contrasena, hash)? {
-        return Err(AppError::Unauthorized);
-    }
-
-    // Actualizar ultimo login
-    auth_repo.actualizar_ultimo_login(usuario.id).await?;
-
-    // Generar tokens
-    let access_token = auth_service.generar_access_token(usuario.id)?;
-    let refresh_raw = auth_service.generar_refresh_token();
-    let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
-
-    let expira = (Utc::now() + Duration::days(30)).fixed_offset();
-    let user_agent = extraer_user_agent(req);
-    auth_repo
-        .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
-        .await?;
-
-    Ok(Json(AuthResponse {
-        access_token,
-        refresh_token: refresh_raw,
-        usuario: construir_usuario_response(&usuario, ETIQUETA_PROVEEDOR_EMAIL, false, None),
-    }))
-}
 
 /// POST /api/v1/auth/refrescar — Obtener nuevos tokens con un refresh token.
 ///
@@ -717,76 +546,4 @@ async fn cargar_usuario_obligatorio(
         .buscar_usuario_por_id(id)
         .await?
         .ok_or_else(|| AppError::Internal(format!("usuario {id} referenciado pero inexistente")))
-}
-
-// ─── Login anonimo ──────────────────────────────────────────────
-
-/// POST /api/v1/auth/anonimo — Crear sesion anonima.
-///
-/// Genera un usuario nuevo sin email ni password y devuelve el mismo
-/// shape de `AuthResponse` que `/auth/login`. El JWT propio incluye
-/// `anonimo=true` para que el cliente sepa que el usuario aun no se
-/// ha completado.
-///
-/// # Por que sin verificacion de Firebase
-/// El cliente Flutter usa `signInAnonymously` de Firebase, pero el ID Token
-/// resultante no aporta nada al backend (no hay email, no hay nombre, solo
-/// un `firebase_uid` aleatorio que no podemos reusar entre dispositivos).
-/// Es mas simple y robusto crear el usuario backend-side sin ese paso —
-/// si el cliente quiere persistir la identidad anonima, basta con guardar
-/// el `refresh_token` que devolvemos.
-///
-/// # Por que un metodo POST sin body util
-/// El body es opcional. Si el cliente envia `device_id`, lo guardamos como
-/// referencia (util para soporte). Si no, basta con `{}` o `{"device_id": null}`.
-#[endpoint(tags("Auth"))]
-pub async fn login_anonimo(
-    req: &mut Request,
-    body: JsonBody<AnonimoLoginRequest>,
-    depot: &mut Depot,
-) -> Result<Json<AuthResponse>, AppError> {
-    let auth_service = depot
-        .obtain::<AuthService>()
-        .map_err(|_| AppError::Internal("AuthService no disponible".into()))?
-        .clone();
-    let auth_repo = depot
-        .obtain::<SeaAuthRepo>()
-        .map_err(|_| AppError::Internal("AuthRepo no disponible".into()))?
-        .clone();
-    let proveedor_repo = depot
-        .obtain::<SeaProveedorAutenticacionRepo>()
-        .map_err(|_| AppError::Internal("ProveedorAutenticacionRepo no disponible".into()))?
-        .clone();
-
-    // ── 1. Crear usuario anonimo en `usuarios` ──
-    let usuario = auth_repo.crear_usuario_anonimo().await?;
-
-    // ── 2. Crear identidad anonima en `proveedores_autenticacion` ──
-    // El `device_id` queda registrado como JSONB para soporte / diagnosticos.
-    let datos = body
-        .device_id
-        .as_deref()
-        .map(|d| serde_json::json!({ "device_id": d }));
-    proveedor_repo
-        .crear(usuario.id, PROVEEDOR_ANONYMOUS, None, None, datos)
-        .await?;
-
-    // ── 3. Actualizar ultimo_login (consistencia con el resto de flujos) ──
-    auth_repo.actualizar_ultimo_login(usuario.id).await?;
-
-    // ── 4. Emitir tokens marcando `anonimo=true` ──
-    let access_token = auth_service.generar_access_token_con_flag(usuario.id, true)?;
-    let refresh_raw = auth_service.generar_refresh_token();
-    let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
-    let expira = (Utc::now() + Duration::days(30)).fixed_offset();
-    let user_agent = extraer_user_agent(req);
-    auth_repo
-        .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
-        .await?;
-
-    Ok(Json(AuthResponse {
-        access_token,
-        refresh_token: refresh_raw,
-        usuario: construir_usuario_response(&usuario, PROVEEDOR_ANONYMOUS, true, None),
-    }))
 }

@@ -166,8 +166,10 @@ async fn main() {
                 .description(
                     "API REST del backend de InemSellar\n\n\
                      App de ayuda a desempleados en Espana — SEPE/INEM.\n\n\
-                     **Autenticacion**: usa `POST /api/v1/auth/login` para obtener un \
-                     `access_token` JWT y pulsalo en el boton Authorize (arriba a la derecha).",
+                     **Autenticacion**: completa el login con Firebase en el cliente y \
+                     llama a `POST /api/v1/auth/firebase` con el ID Token. La respuesta \
+                     incluye un `access_token` JWT que puedes pulsar en el boton Authorize \
+                     (arriba a la derecha) para probar los endpoints protegidos.",
                 )
                 .contact(
                     salvo::oapi::Contact::new()

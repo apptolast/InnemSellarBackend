@@ -13,13 +13,11 @@ use crate::middleware;
 
 /// Crea el router completo de la API.
 ///
-/// Estructura de URLs (~40 endpoints):
+/// Estructura de URLs (~38 endpoints):
 /// ```text
-/// /api/v1/auth/registro                     → POST registro (email/password)
-/// /api/v1/auth/login                        → POST login (email/password)
-/// /api/v1/auth/firebase                     → POST login con Firebase ID Token (Google)
-/// /api/v1/auth/anonimo                      → POST login anonimo (sin credenciales)
-/// /api/v1/auth/refrescar                    → POST refrescar token
+/// /api/v1/auth/firebase                     → POST handshake unico con Firebase ID Token
+///                                             (acepta google.com, password, anonymous)
+/// /api/v1/auth/refrescar                    → POST refrescar token (rotacion)
 /// /api/v1/auth/logout                       → POST logout (auth)
 ///
 /// /api/v1/perfil                            → GET/PUT perfil propio (auth)
@@ -58,10 +56,7 @@ pub fn crear_router() -> Router {
             // ── Auth ──────────────────────────────────────────────
             .push(
                 Router::with_path("auth")
-                    .push(Router::with_path("registro").post(auth::registro))
-                    .push(Router::with_path("login").post(auth::login))
                     .push(Router::with_path("firebase").post(auth::login_firebase))
-                    .push(Router::with_path("anonimo").post(auth::login_anonimo))
                     .push(Router::with_path("refrescar").post(auth::refrescar))
                     .push(
                         Router::with_path("logout")

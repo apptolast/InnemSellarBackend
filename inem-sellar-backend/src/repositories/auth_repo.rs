@@ -11,20 +11,14 @@ use crate::models::{token_refresco, usuario};
 
 /// Contrato de acceso a datos de autenticacion.
 pub trait AuthRepo: Send + Sync {
-    fn crear_usuario(
-        &self,
-        email: &str,
-        hash_contrasena: &str,
-        nombre_visible: Option<&str>,
-    ) -> impl std::future::Future<Output = Result<usuario::Model, AppError>> + Send;
-
-    /// Crea un usuario para un flujo OAuth (Google via Firebase, Apple, etc.).
+    /// Crea un usuario para un flujo Firebase con email
+    /// (`sign_in_provider` = `"google.com"` o `"password"`).
     ///
-    /// Diferencias con `crear_usuario`:
-    ///   - `email` es opcional (no todos los proveedores lo dan).
-    ///   - `hash_contrasena` queda `NULL` (no hay contrasena local).
-    ///   - Permite enriquecer el perfil con `nombre_visible` y `url_avatar`
-    ///     que vienen del proveedor.
+    /// El email es opcional (algunos providers podrian no entregarlo) y
+    /// `hash_contrasena` queda siempre `NULL`: el backend no almacena
+    /// passwords desde la unificacion del handshake en `/auth/firebase`.
+    /// El nombre y avatar vienen del Firebase profile cuando el provider
+    /// los entrega.
     fn crear_usuario_oauth(
         &self,
         email: Option<&str>,
@@ -96,24 +90,6 @@ impl SeaAuthRepo {
 }
 
 impl AuthRepo for SeaAuthRepo {
-    async fn crear_usuario(
-        &self,
-        email: &str,
-        hash_contrasena: &str,
-        nombre_visible: Option<&str>,
-    ) -> Result<usuario::Model, AppError> {
-        let new_user = usuario::ActiveModel {
-            id: Set(Uuid::new_v4()),
-            email: Set(Some(email.to_string())),
-            hash_contrasena: Set(Some(hash_contrasena.to_string())),
-            nombre_visible: Set(nombre_visible.map(String::from)),
-            activo: Set(Some(true)),
-            ..Default::default()
-        };
-
-        new_user.insert(&self.db).await.map_err(AppError::from_db)
-    }
-
     async fn crear_usuario_oauth(
         &self,
         email: Option<&str>,
@@ -124,8 +100,8 @@ impl AuthRepo for SeaAuthRepo {
             id: Set(Uuid::new_v4()),
             email: Set(email.map(String::from)),
             // `hash_contrasena` queda `NotSet` (default = NULL en BD).
-            // El usuario no puede hacer login con email/password hasta que
-            // un futuro endpoint /auth/upgrade le permita establecer una.
+            // El backend ya no almacena passwords; las credenciales se
+            // gestionan en Firebase y se validan via ID Token.
             nombre_visible: Set(nombre_visible.map(String::from)),
             url_avatar: Set(url_avatar.map(String::from)),
             activo: Set(Some(true)),
