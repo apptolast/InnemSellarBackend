@@ -26,6 +26,8 @@ de despliegue: Docker, CI/CD, Nginx, migraciones, y scripts de operaciones.
 - Docker up: `docker compose up -d`
 - Migraciones: `sea-orm-cli migrate up`
 - Seed: `cargo run --bin seed`
+- Rename proveedor firebase -> google.com (one-shot, antes del deploy del refactor de auth):
+  `psql "$DATABASE_URL" -f scripts/migrate_proveedor_firebase_to_google.sql`
 
 ## Estructura del proyecto
 ```
