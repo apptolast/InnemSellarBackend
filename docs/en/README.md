@@ -77,13 +77,16 @@ Handler (HTTP) -> Service (business logic) -> Repository (data access) -> Postgr
 - Repositories abstract all SQL queries through traits
 - SeaORM generates typed queries from models
 
-### JWT Authentication
+### Authentication: Firebase + own JWTs
+- The client delegates ALL login to FirebaseAuth (Google, email/password, anonymous)
+  and submits the Firebase ID Token (RS256) to `POST /api/v1/auth/firebase`
+- The backend verifies it against Google's JWKS (signature + `iss`/`aud`/`exp` claims)
+  and issues its own HS256 tokens with `jsonwebtoken`
 - Access token: short-lived (15 min). Sent in `Authorization: Bearer <token>` header
 - Refresh token: long-lived (30 days), stored in DB (`tokens_refresco` table), allows
   renewing the access token without re-authenticating
-- Refresh token hash stored with SHA-256 (not plaintext) for security
-- Passwords hashed with Argon2id (Password Hashing Competition winner)
-- Implemented with the `jsonwebtoken` crate
+- Refresh token hash stored with SHA-256 (not plaintext)
+- The backend does NOT store passwords: credential authentication lives in Firebase
 
 ### SeaORM
 Async ORM on top of SQLx. Features:
@@ -102,9 +105,10 @@ Async ORM on top of SQLx. Features:
 ## API Endpoints
 
 ### Authentication (`/api/v1/auth`)
-- `POST /registro` — Register new user
-- `POST /login` — Login with email/password, returns access + refresh tokens
-- `POST /refrescar` — Renew access token using refresh token
+- `POST /firebase` — Single handshake with Firebase ID Token. Accepts `google.com`,
+  `password` and `anonymous`. Returns own access + refresh tokens + user data
+- `POST /refrescar` — Renew access token using refresh token (rotation: the previous
+  one is revoked)
 - `POST /logout` — Revoke refresh token (requires auth)
 
 ### Job Offers (`/api/v1/ofertas`)
@@ -141,7 +145,8 @@ inem-sellar-backend/src/
 ├── models/              — Structs mapping to PostgreSQL tables (17 SeaORM entities)
 ├── repositories/        — Traits + data access implementations
 ├── routes/              — Route tree definition with Salvo Router
-└── services/            — Business logic (AuthService: JWT, Argon2, refresh tokens)
+└── services/            — Business logic (AuthService: own JWTs + refresh tokens,
+                            FirebaseVerifier: Firebase ID Token validation against JWKS)
 ```
 
 ---
@@ -151,8 +156,9 @@ inem-sellar-backend/src/
 | Variable                  | Description                                  | Example                          |
 |---------------------------|----------------------------------------------|----------------------------------|
 | `DATABASE_URL`            | PostgreSQL connection URL                    | See K8s secret                   |
-| `JWT_SECRET`              | Secret key for signing JWT tokens            | Random 48+ byte string           |
+| `JWT_SECRET`              | Secret key for signing own JWT tokens        | Random 48+ byte string           |
 | `JWT_EXPIRACION_MINUTOS`  | Access token duration in minutes             | `15`                             |
+| `FIREBASE_PROJECT_ID`     | Firebase project ID (no default; panics)     | `inemsellar-app`                 |
 | `SERVER_ADDR`             | Public address (for logs)                    | `0.0.0.0:8080`                   |
 | `PORT_ADDR`               | Socket binding address                       | `0.0.0.0:8080`                   |
 | `RUST_LOG`                | Log level (trace/debug/info/warn/error)      | `info`                           |

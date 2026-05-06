@@ -78,13 +78,16 @@ Handler (HTTP) -> Service (logica de negocio) -> Repository (acceso a datos) -> 
 - Los repositorios abstraen todas las queries SQL a traves de traits
 - SeaORM genera queries tipadas a partir de los modelos
 
-### Autenticacion JWT
+### Autenticacion: Firebase + JWT propios
+- El cliente delega TODO el login en FirebaseAuth (Google, email/password, anonimo)
+  y entrega el Firebase ID Token (RS256) en `POST /api/v1/auth/firebase`
+- El backend lo verifica contra los JWKS de Google (firma + claims `iss`/`aud`/`exp`)
+  y emite sus propios tokens HS256 con `jsonwebtoken`
 - Access token: vida corta (15 min). Se envia en el header `Authorization: Bearer <token>`
 - Refresh token: vida larga (30 dias), guardado en BD (tabla `tokens_refresco`), permite
   renovar el access token sin re-autenticarse
-- El hash del refresh token se almacena con SHA-256 (no el token en claro) para seguridad
-- Contrasenas hasheadas con Argon2id (ganador de la Password Hashing Competition)
-- Implementado con la crate `jsonwebtoken`
+- El hash del refresh token se almacena con SHA-256 (no el token en claro)
+- El backend NO almacena passwords: la autenticacion de credenciales vive en Firebase
 
 ### SeaORM
 ORM asincrono sobre SQLx. Caracteristicas:
@@ -103,9 +106,10 @@ ORM asincrono sobre SQLx. Caracteristicas:
 ## Endpoints de la API
 
 ### Autenticacion (`/api/v1/auth`)
-- `POST /registro` — Registrar nuevo usuario
-- `POST /login` — Login con email/password, devuelve access + refresh tokens
-- `POST /refrescar` — Renovar access token usando refresh token
+- `POST /firebase` — Handshake unico con Firebase ID Token. Acepta `google.com`,
+  `password` y `anonymous`. Devuelve access + refresh tokens propios + datos del usuario
+- `POST /refrescar` — Renovar access token usando refresh token (rotacion: el anterior
+  queda revocado)
 - `POST /logout` — Revocar refresh token (requiere auth)
 
 ### Ofertas de empleo (`/api/v1/ofertas`)
@@ -142,7 +146,8 @@ inem-sellar-backend/src/
 ├── models/              — Structs que mapean a tablas PostgreSQL (17 entidades SeaORM)
 ├── repositories/        — Traits + implementaciones de acceso a datos
 ├── routes/              — Definicion del arbol de rutas con Salvo Router
-└── services/            — Logica de negocio (AuthService: JWT, Argon2, refresh tokens)
+└── services/            — Logica de negocio (AuthService: JWT propios + refresh tokens,
+                            FirebaseVerifier: validacion del Firebase ID Token contra JWKS)
 ```
 
 ---
@@ -152,8 +157,9 @@ inem-sellar-backend/src/
 | Variable                  | Descripcion                                  | Ejemplo                       |
 |---------------------------|----------------------------------------------|-------------------------------|
 | `DATABASE_URL`            | URL de conexion a PostgreSQL                 | Ver secret de K8s             |
-| `JWT_SECRET`              | Clave secreta para firmar tokens JWT         | Cadena aleatoria de 48+ bytes |
+| `JWT_SECRET`              | Clave secreta para firmar tokens JWT propios | Cadena aleatoria de 48+ bytes |
 | `JWT_EXPIRACION_MINUTOS`  | Duracion del access token en minutos         | `15`                          |
+| `FIREBASE_PROJECT_ID`     | Project ID de Firebase (sin default; panic) | `inemsellar-app`              |
 | `SERVER_ADDR`             | Direccion publica (para logs)                | `0.0.0.0:8080`                |
 | `PORT_ADDR`               | Direccion de binding del socket TCP          | `0.0.0.0:8080`                |
 | `RUST_LOG`                | Nivel de logs (trace/debug/info/warn/error)  | `info`                        |
