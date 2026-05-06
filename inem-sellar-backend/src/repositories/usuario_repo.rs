@@ -7,6 +7,8 @@
 // usuario_repo maneja el perfil del usuario — operaciones de datos personales.
 // Separar responsabilidades mantiene cada modulo enfocado y testeable.
 
+use std::sync::Arc;
+
 use sea_orm::{ActiveModelTrait, DatabaseConnection, EntityTrait, Set};
 use uuid::Uuid;
 
@@ -55,11 +57,11 @@ pub trait UsuarioRepo: Send + Sync {
 /// Implementacion con SeaORM + PostgreSQL.
 #[derive(Clone)]
 pub struct SeaUsuarioRepo {
-    db: sea_orm::DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaUsuarioRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -67,7 +69,7 @@ impl SeaUsuarioRepo {
 impl UsuarioRepo for SeaUsuarioRepo {
     async fn obtener_perfil(&self, id: Uuid) -> Result<usuario::Model, AppError> {
         usuario::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Usuario con id {id}")))
@@ -79,7 +81,7 @@ impl UsuarioRepo for SeaUsuarioRepo {
         datos: ActualizarPerfilDto,
     ) -> Result<usuario::Model, AppError> {
         let usuario = usuario::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Usuario con id {id}")))?;
@@ -105,6 +107,6 @@ impl UsuarioRepo for SeaUsuarioRepo {
             active.id_provincia = Set(datos.id_provincia);
         }
 
-        active.update(&self.db).await.map_err(AppError::from_db)
+        active.update(&*self.db).await.map_err(AppError::from_db)
     }
 }

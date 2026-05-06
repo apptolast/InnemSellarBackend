@@ -2,6 +2,8 @@
 //
 // Repositorio de ofertas de empleo — CRUD completo con paginacion y filtros.
 
+use std::sync::Arc;
+
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
     QueryOrder, Set,
@@ -73,11 +75,11 @@ pub trait OfertaRepo: Send + Sync {
 
 #[derive(Clone)]
 pub struct SeaOfertaRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaOfertaRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -98,7 +100,7 @@ impl OfertaRepo for SeaOfertaRepo {
             // Subquery: IDs de ofertas que estan en esa provincia
             let ids_ofertas: Vec<Uuid> = oferta_provincia::Entity::find()
                 .filter(oferta_provincia::Column::IdProvincia.eq(id_prov))
-                .all(&self.db)
+                .all(&*self.db)
                 .await
                 .map_err(AppError::from_db)?
                 .into_iter()
@@ -109,7 +111,7 @@ impl OfertaRepo for SeaOfertaRepo {
         }
 
         // Paginacion con SeaORM
-        let paginator = query.paginate(&self.db, por_pagina);
+        let paginator = query.paginate(&*self.db, por_pagina);
         let total = paginator.num_items().await.map_err(AppError::from_db)?;
         let ofertas = paginator
             .fetch_page(pagina.saturating_sub(1)) // pagina 1-based → 0-based
@@ -121,7 +123,7 @@ impl OfertaRepo for SeaOfertaRepo {
 
     async fn obtener_oferta(&self, id: Uuid) -> Result<oferta_empleo::Model, AppError> {
         oferta_empleo::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Oferta con id {id}")))
@@ -148,7 +150,7 @@ impl OfertaRepo for SeaOfertaRepo {
             ..Default::default()
         };
 
-        let oferta = nueva.insert(&self.db).await.map_err(AppError::from_db)?;
+        let oferta = nueva.insert(&*self.db).await.map_err(AppError::from_db)?;
 
         // Vincular provincias (N:M)
         for id_prov in datos.provincias {
@@ -156,7 +158,7 @@ impl OfertaRepo for SeaOfertaRepo {
                 id_oferta: Set(id_oferta),
                 id_provincia: Set(id_prov),
             };
-            vinculo.insert(&self.db).await.map_err(AppError::from_db)?;
+            vinculo.insert(&*self.db).await.map_err(AppError::from_db)?;
         }
 
         Ok(oferta)
@@ -168,7 +170,7 @@ impl OfertaRepo for SeaOfertaRepo {
         datos: ActualizarOfertaDto,
     ) -> Result<oferta_empleo::Model, AppError> {
         let oferta = oferta_empleo::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Oferta con id {id}")))?;
@@ -198,14 +200,14 @@ impl OfertaRepo for SeaOfertaRepo {
             active.web_contacto = Set(datos.web_contacto);
         }
 
-        let resultado = active.update(&self.db).await.map_err(AppError::from_db)?;
+        let resultado = active.update(&*self.db).await.map_err(AppError::from_db)?;
 
         // Actualizar provincias si se enviaron
         if let Some(provincias) = datos.provincias {
             // Borrar las asociaciones existentes
             oferta_provincia::Entity::delete_many()
                 .filter(oferta_provincia::Column::IdOferta.eq(id))
-                .exec(&self.db)
+                .exec(&*self.db)
                 .await
                 .map_err(AppError::from_db)?;
 
@@ -215,7 +217,7 @@ impl OfertaRepo for SeaOfertaRepo {
                     id_oferta: Set(id),
                     id_provincia: Set(id_prov),
                 };
-                vinculo.insert(&self.db).await.map_err(AppError::from_db)?;
+                vinculo.insert(&*self.db).await.map_err(AppError::from_db)?;
             }
         }
 
@@ -224,7 +226,7 @@ impl OfertaRepo for SeaOfertaRepo {
 
     async fn eliminar_oferta(&self, id: Uuid) -> Result<(), AppError> {
         let result = oferta_empleo::Entity::delete_by_id(id)
-            .exec(&self.db)
+            .exec(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 

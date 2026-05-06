@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
 
@@ -31,11 +33,11 @@ pub trait VotoRepo: Send + Sync {
 
 #[derive(Clone)]
 pub struct SeaVotoRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaVotoRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -58,7 +60,7 @@ impl VotoRepo for SeaVotoRepo {
                 // Actualizar voto existente
                 let mut active: voto::ActiveModel = voto_existente.into();
                 active.tipo_voto = Set(Some(tipo_voto));
-                active.update(&self.db).await.map_err(AppError::from_db)
+                active.update(&*self.db).await.map_err(AppError::from_db)
             }
             None => {
                 // Crear voto nuevo
@@ -69,7 +71,7 @@ impl VotoRepo for SeaVotoRepo {
                     tipo_voto: Set(Some(tipo_voto)),
                     ..Default::default()
                 };
-                nuevo.insert(&self.db).await.map_err(AppError::from_db)
+                nuevo.insert(&*self.db).await.map_err(AppError::from_db)
             }
         }
     }
@@ -84,7 +86,7 @@ impl VotoRepo for SeaVotoRepo {
             .filter(voto::Column::IdUsuario.eq(id_usuario))
             .filter(voto::Column::TipoContenido.eq(tipo_contenido))
             .filter(voto::Column::IdContenido.eq(id_contenido))
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
@@ -101,7 +103,7 @@ impl VotoRepo for SeaVotoRepo {
             .ok_or_else(|| AppError::NotFound("Voto no encontrado".into()))?;
 
         let active: voto::ActiveModel = voto.into();
-        active.delete(&self.db).await.map_err(AppError::from_db)?;
+        active.delete(&*self.db).await.map_err(AppError::from_db)?;
         Ok(())
     }
 }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
     QueryOrder, Set,
@@ -57,11 +59,11 @@ pub trait ConsejoRepo: Send + Sync {
 
 #[derive(Clone)]
 pub struct SeaConsejoRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaConsejoRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -80,7 +82,7 @@ impl ConsejoRepo for SeaConsejoRepo {
         if let Some(id_prov) = id_provincia {
             let ids: Vec<Uuid> = consejo_provincia::Entity::find()
                 .filter(consejo_provincia::Column::IdProvincia.eq(id_prov))
-                .all(&self.db)
+                .all(&*self.db)
                 .await
                 .map_err(AppError::from_db)?
                 .into_iter()
@@ -89,7 +91,7 @@ impl ConsejoRepo for SeaConsejoRepo {
             query = query.filter(consejo::Column::Id.is_in(ids));
         }
 
-        let paginator = query.paginate(&self.db, por_pagina);
+        let paginator = query.paginate(&*self.db, por_pagina);
         let total = paginator.num_items().await.map_err(AppError::from_db)?;
         let consejos = paginator
             .fetch_page(pagina.saturating_sub(1))
@@ -101,7 +103,7 @@ impl ConsejoRepo for SeaConsejoRepo {
 
     async fn obtener_consejo(&self, id: Uuid) -> Result<consejo::Model, AppError> {
         consejo::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Consejo con id {id}")))
@@ -125,14 +127,14 @@ impl ConsejoRepo for SeaConsejoRepo {
             ..Default::default()
         };
 
-        let consejo = nuevo.insert(&self.db).await.map_err(AppError::from_db)?;
+        let consejo = nuevo.insert(&*self.db).await.map_err(AppError::from_db)?;
 
         for id_prov in datos.provincias {
             let vinculo = consejo_provincia::ActiveModel {
                 id_consejo: Set(id_consejo),
                 id_provincia: Set(id_prov),
             };
-            vinculo.insert(&self.db).await.map_err(AppError::from_db)?;
+            vinculo.insert(&*self.db).await.map_err(AppError::from_db)?;
         }
 
         Ok(consejo)
@@ -144,7 +146,7 @@ impl ConsejoRepo for SeaConsejoRepo {
         datos: ActualizarConsejoDto,
     ) -> Result<consejo::Model, AppError> {
         let consejo = consejo::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Consejo con id {id}")))?;
@@ -164,13 +166,13 @@ impl ConsejoRepo for SeaConsejoRepo {
             active.imagen_url = Set(datos.imagen_url);
         }
 
-        let resultado = active.update(&self.db).await.map_err(AppError::from_db)?;
+        let resultado = active.update(&*self.db).await.map_err(AppError::from_db)?;
 
         // Actualizar provincias si se enviaron
         if let Some(provincias) = datos.provincias {
             consejo_provincia::Entity::delete_many()
                 .filter(consejo_provincia::Column::IdConsejo.eq(id))
-                .exec(&self.db)
+                .exec(&*self.db)
                 .await
                 .map_err(AppError::from_db)?;
 
@@ -179,7 +181,7 @@ impl ConsejoRepo for SeaConsejoRepo {
                     id_consejo: Set(id),
                     id_provincia: Set(id_prov),
                 };
-                vinculo.insert(&self.db).await.map_err(AppError::from_db)?;
+                vinculo.insert(&*self.db).await.map_err(AppError::from_db)?;
             }
         }
 
@@ -188,7 +190,7 @@ impl ConsejoRepo for SeaConsejoRepo {
 
     async fn eliminar_consejo(&self, id: Uuid) -> Result<(), AppError> {
         let result = consejo::Entity::delete_by_id(id)
-            .exec(&self.db)
+            .exec(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 

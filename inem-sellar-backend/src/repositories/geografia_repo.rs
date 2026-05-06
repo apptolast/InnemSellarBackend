@@ -9,6 +9,8 @@
 // El SQL ya NO se escribe a mano. SeaORM genera las queries
 // automaticamente a partir de las entidades.
 
+use std::sync::Arc;
+
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
@@ -210,18 +212,18 @@ pub trait GeografiaRepo: Send + Sync {
 /// Implementacion con SeaORM + PostgreSQL.
 #[derive(Clone)]
 pub struct SeaGeografiaRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaGeografiaRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
 
 /// # Por que Entity::find() en vez de SQL crudo
 /// SeaORM genera el SQL por ti. Cuando escribes:
-///   `comunidad_autonoma::Entity::find().all(&self.db).await`
+///   `comunidad_autonoma::Entity::find().all(&*self.db).await`
 /// SeaORM genera internamente:
 ///   `SELECT * FROM comunidades_autonomas`
 /// Y mapea el resultado a `comunidad_autonoma::Model`.
@@ -250,7 +252,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
     async fn listar_comunidades(&self) -> Result<Vec<comunidad_autonoma::Model>, AppError> {
         let comunidades = comunidad_autonoma::Entity::find()
             .order_by_asc(comunidad_autonoma::Column::Id)
-            .all(&self.db)
+            .all(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 
@@ -259,7 +261,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
 
     async fn obtener_comunidad(&self, id: i32) -> Result<comunidad_autonoma::Model, AppError> {
         comunidad_autonoma::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Comunidad autonoma con id {id}")))
@@ -279,7 +281,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
             url_sellado: Set(datos.url_sellado),
             ..Default::default()
         };
-        nueva.insert(&self.db).await.map_err(AppError::from_db)
+        nueva.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn actualizar_comunidad(
@@ -291,7 +293,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
         // Luego convertimos el Model en ActiveModel con `.into()` para poder mutar
         // solo los campos que queremos actualizar.
         let comunidad = comunidad_autonoma::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Comunidad autonoma con id {id}")))?;
@@ -311,14 +313,14 @@ impl GeografiaRepo for SeaGeografiaRepo {
             active.url_sellado = Set(datos.url_sellado);
         }
 
-        active.update(&self.db).await.map_err(AppError::from_db)
+        active.update(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn eliminar_comunidad(&self, id: i32) -> Result<(), AppError> {
         // `delete_by_id` genera: DELETE FROM comunidades_autonomas WHERE id = $1
         // Comprobamos `rows_affected` para detectar si el registro existia o no.
         let result = comunidad_autonoma::Entity::delete_by_id(id)
-            .exec(&self.db)
+            .exec(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 
@@ -341,14 +343,14 @@ impl GeografiaRepo for SeaGeografiaRepo {
             query = query.filter(provincia::Column::IdComunidad.eq(id_com));
         }
 
-        let provincias = query.all(&self.db).await.map_err(AppError::from_db)?;
+        let provincias = query.all(&*self.db).await.map_err(AppError::from_db)?;
 
         Ok(provincias)
     }
 
     async fn obtener_provincia(&self, id: i32) -> Result<provincia::Model, AppError> {
         provincia::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Provincia con id {id}")))
@@ -367,7 +369,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
             logo_asset: Set(datos.logo_asset),
             ..Default::default()
         };
-        nueva.insert(&self.db).await.map_err(AppError::from_db)
+        nueva.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn actualizar_provincia(
@@ -376,7 +378,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
         datos: ActualizarProvinciaDto,
     ) -> Result<provincia::Model, AppError> {
         let provincia = provincia::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Provincia con id {id}")))?;
@@ -393,12 +395,12 @@ impl GeografiaRepo for SeaGeografiaRepo {
             active.logo_asset = Set(datos.logo_asset);
         }
 
-        active.update(&self.db).await.map_err(AppError::from_db)
+        active.update(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn eliminar_provincia(&self, id: i32) -> Result<(), AppError> {
         let result = provincia::Entity::delete_by_id(id)
-            .exec(&self.db)
+            .exec(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 
@@ -414,7 +416,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
     ) -> Result<oficina_sepe::Model, AppError> {
         oficina_sepe::Entity::find()
             .filter(oficina_sepe::Column::IdProvincia.eq(id_provincia))
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| {
@@ -427,7 +429,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
         // (la columna id_provincia tiene UNIQUE constraint en el schema).
         let existente = oficina_sepe::Entity::find()
             .filter(oficina_sepe::Column::IdProvincia.eq(datos.id_provincia))
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 
@@ -447,7 +449,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
             url_orientacion: Set(datos.url_orientacion),
             ..Default::default()
         };
-        nueva.insert(&self.db).await.map_err(AppError::from_db)
+        nueva.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn actualizar_oficina(
@@ -458,7 +460,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
         // Las oficinas se buscan por id_provincia (clave natural), no por su PK interna.
         let oficina = oficina_sepe::Entity::find()
             .filter(oficina_sepe::Column::IdProvincia.eq(id_provincia))
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| {
@@ -480,7 +482,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
             active.url_orientacion = Set(datos.url_orientacion);
         }
 
-        active.update(&self.db).await.map_err(AppError::from_db)
+        active.update(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn eliminar_oficina(&self, id_provincia: i32) -> Result<(), AppError> {
@@ -488,7 +490,7 @@ impl GeografiaRepo for SeaGeografiaRepo {
         // por lo que usamos `delete_many` con filtro.
         let result = oficina_sepe::Entity::delete_many()
             .filter(oficina_sepe::Column::IdProvincia.eq(id_provincia))
-            .exec(&self.db)
+            .exec(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 

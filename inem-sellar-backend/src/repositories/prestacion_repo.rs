@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use crate::errors::AppError;
@@ -49,11 +51,11 @@ pub trait PrestacionRepo: Send + Sync {
 
 #[derive(Clone)]
 pub struct SeaPrestacionRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaPrestacionRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -62,14 +64,14 @@ impl PrestacionRepo for SeaPrestacionRepo {
     async fn listar_prestaciones(&self) -> Result<Vec<prestacion::Model>, AppError> {
         prestacion::Entity::find()
             .filter(prestacion::Column::Activo.eq(Some(true)))
-            .all(&self.db)
+            .all(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
 
     async fn obtener_prestacion(&self, id: i32) -> Result<prestacion::Model, AppError> {
         prestacion::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Prestacion con id {id}")))
@@ -87,7 +89,7 @@ impl PrestacionRepo for SeaPrestacionRepo {
             activo: Set(Some(true)),
             ..Default::default()
         };
-        nueva.insert(&self.db).await.map_err(AppError::from_db)
+        nueva.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn actualizar_prestacion(
@@ -96,7 +98,7 @@ impl PrestacionRepo for SeaPrestacionRepo {
         datos: ActualizarPrestacionDto,
     ) -> Result<prestacion::Model, AppError> {
         let prestacion = prestacion::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Prestacion con id {id}")))?;
@@ -119,12 +121,12 @@ impl PrestacionRepo for SeaPrestacionRepo {
             active.activo = Set(datos.activo);
         }
 
-        active.update(&self.db).await.map_err(AppError::from_db)
+        active.update(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn eliminar_prestacion(&self, id: i32) -> Result<(), AppError> {
         let result = prestacion::Entity::delete_by_id(id)
-            .exec(&self.db)
+            .exec(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 

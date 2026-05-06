@@ -2,6 +2,8 @@
 //
 // Repositorio de autenticacion — acceso a datos de usuarios y tokens.
 
+use std::sync::Arc;
+
 use chrono::{DateTime, FixedOffset};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
@@ -80,11 +82,11 @@ pub trait AuthRepo: Send + Sync {
 /// Implementacion con SeaORM.
 #[derive(Clone)]
 pub struct SeaAuthRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaAuthRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -107,7 +109,7 @@ impl AuthRepo for SeaAuthRepo {
             activo: Set(Some(true)),
             ..Default::default()
         };
-        nuevo.insert(&self.db).await.map_err(AppError::from_db)
+        nuevo.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn crear_usuario_anonimo(&self) -> Result<usuario::Model, AppError> {
@@ -119,20 +121,20 @@ impl AuthRepo for SeaAuthRepo {
             activo: Set(Some(true)),
             ..Default::default()
         };
-        nuevo.insert(&self.db).await.map_err(AppError::from_db)
+        nuevo.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn buscar_por_email(&self, email: &str) -> Result<Option<usuario::Model>, AppError> {
         usuario::Entity::find()
             .filter(usuario::Column::Email.eq(Some(email.to_string())))
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
 
     async fn buscar_usuario_por_id(&self, id: Uuid) -> Result<Option<usuario::Model>, AppError> {
         usuario::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
@@ -144,7 +146,7 @@ impl AuthRepo for SeaAuthRepo {
         url_avatar: Option<&str>,
     ) -> Result<(), AppError> {
         let user = usuario::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound("Usuario no encontrado".into()))?;
@@ -170,7 +172,7 @@ impl AuthRepo for SeaAuthRepo {
         }
 
         if algo_que_actualizar {
-            active.update(&self.db).await.map_err(AppError::from_db)?;
+            active.update(&*self.db).await.map_err(AppError::from_db)?;
         }
         Ok(())
     }
@@ -192,7 +194,7 @@ impl AuthRepo for SeaAuthRepo {
             ..Default::default()
         };
 
-        new_token.insert(&self.db).await.map_err(AppError::from_db)
+        new_token.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn buscar_refresh_token_por_hash(
@@ -202,35 +204,35 @@ impl AuthRepo for SeaAuthRepo {
         token_refresco::Entity::find()
             .filter(token_refresco::Column::HashToken.eq(Some(hash.to_string())))
             .filter(token_refresco::Column::Revocado.eq(Some(false)))
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
 
     async fn revocar_refresh_token(&self, id: Uuid) -> Result<(), AppError> {
         let token = token_refresco::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound("Token no encontrado".into()))?;
 
         let mut active: token_refresco::ActiveModel = token.into();
         active.revocado = Set(Some(true));
-        active.update(&self.db).await.map_err(AppError::from_db)?;
+        active.update(&*self.db).await.map_err(AppError::from_db)?;
 
         Ok(())
     }
 
     async fn actualizar_ultimo_login(&self, id_usuario: Uuid) -> Result<(), AppError> {
         let user = usuario::Entity::find_by_id(id_usuario)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound("Usuario no encontrado".into()))?;
 
         let mut active: usuario::ActiveModel = user.into();
         active.ultimo_login = Set(Some(chrono::Utc::now().fixed_offset()));
-        active.update(&self.db).await.map_err(AppError::from_db)?;
+        active.update(&*self.db).await.map_err(AppError::from_db)?;
 
         Ok(())
     }

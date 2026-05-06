@@ -36,3 +36,28 @@ rand = "0.8"
 #     `runtime-tokio-rustls` que ya usa sea-orm. Sin dependencias C nativas.
 #   - `json`: habilita `Response::json::<T>()` para deserializar el JWKS de Google.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+
+# `[dev-dependencies]` se compilan SOLO al ejecutar `cargo test` o `cargo bench`,
+# nunca entran en el binario de produccion.
+#
+# - `salvo` con feature `test`: anade `TestClient` para invocar handlers
+#   sin levantar un puerto TCP real. La crate base ya esta en `[dependencies]`;
+#   esta entrada solo activa el feature extra para builds de test.
+# - `sea-orm` con feature `mock`: habilita `MockDatabase`, que permite
+#   pre-programar respuestas SELECT/INSERT/UPDATE en orden FIFO y testar
+#   el flujo de los handlers sin Postgres. Activarlo desactiva `Clone` en
+#   `DatabaseConnection`; por eso los repos guardan `Arc<DatabaseConnection>`.
+# - `wiremock`: servidor HTTP mockeable (async-native con tokio) para servir
+#   un JWKS Firebase falso al `FirebaseVerifier` via su `new_with_url`.
+# - `rsa`: generamos un keypair RSA 2048 al vuelo (una sola vez via LazyLock)
+#   para firmar los tokens forjados en tests.
+# - `base64`: codificar el modulo `n` y exponente `e` en el JWKS mock.
+# - `tokio` con `rt-multi-thread`: necesario para `#[tokio::test]` que
+#   levanta el runtime async en cada test.
+[dev-dependencies]
+salvo    = { version = "0.91.1", features = ["test"] }
+sea-orm  = { version = "1", features = ["mock"] }
+wiremock = "0.6"
+tokio    = { version = "1", features = ["macros", "rt-multi-thread"] }
+rsa      = "0.9"
+base64   = "0.22"

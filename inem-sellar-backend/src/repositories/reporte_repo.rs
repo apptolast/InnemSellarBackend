@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use uuid::Uuid;
@@ -48,11 +50,11 @@ pub trait ReporteRepo: Send + Sync {
 
 #[derive(Clone)]
 pub struct SeaReporteRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaReporteRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -68,7 +70,7 @@ impl ReporteRepo for SeaReporteRepo {
             .filter(reporte::Column::TipoContenido.eq(Some(datos.tipo_contenido.clone())))
             .filter(reporte::Column::IdContenido.eq(Some(datos.id_contenido)))
             .filter(reporte::Column::IdReportero.eq(id_reportero))
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 
@@ -86,20 +88,20 @@ impl ReporteRepo for SeaReporteRepo {
             ..Default::default()
         };
 
-        nuevo.insert(&self.db).await.map_err(AppError::from_db)
+        nuevo.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn listar_reportes_pendientes(&self) -> Result<Vec<reporte::Model>, AppError> {
         reporte::Entity::find()
             .filter(reporte::Column::Estado.eq(Some(EstadoReporte::Pendiente)))
-            .all(&self.db)
+            .all(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
 
     async fn obtener_reporte(&self, id: Uuid) -> Result<reporte::Model, AppError> {
         reporte::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Reporte con id {id}")))
@@ -107,7 +109,7 @@ impl ReporteRepo for SeaReporteRepo {
 
     async fn eliminar_reporte(&self, id: Uuid) -> Result<(), AppError> {
         let result = reporte::Entity::delete_by_id(id)
-            .exec(&self.db)
+            .exec(&*self.db)
             .await
             .map_err(AppError::from_db)?;
 
@@ -124,7 +126,7 @@ impl ReporteRepo for SeaReporteRepo {
         aceptar: bool,
     ) -> Result<reporte::Model, AppError> {
         let reporte = reporte::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Reporte con id {id}")))?;
@@ -138,6 +140,6 @@ impl ReporteRepo for SeaReporteRepo {
         active.id_procesador = Set(Some(id_procesador));
         active.procesado_en = Set(Some(Utc::now().fixed_offset()));
 
-        active.update(&self.db).await.map_err(AppError::from_db)
+        active.update(&*self.db).await.map_err(AppError::from_db)
     }
 }

@@ -13,6 +13,8 @@
 // presentes — los anonimos (con identificador NULL) no entran en la
 // restriccion, asi que pueden coexistir varios.
 
+use std::sync::Arc;
+
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
     Set,
@@ -98,11 +100,11 @@ pub trait ProveedorAutenticacionRepo: Send + Sync {
 /// Implementacion con SeaORM.
 #[derive(Clone)]
 pub struct SeaProveedorAutenticacionRepo {
-    db: DatabaseConnection,
+    db: Arc<DatabaseConnection>,
 }
 
 impl SeaProveedorAutenticacionRepo {
-    pub fn new(db: DatabaseConnection) -> Self {
+    pub fn new(db: Arc<DatabaseConnection>) -> Self {
         Self { db }
     }
 }
@@ -121,7 +123,7 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
                 proveedor_autenticacion::Column::IdentificadorProveedor
                     .eq(Some(identificador.to_string())),
             )
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
@@ -141,7 +143,7 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
                 proveedor_autenticacion::Column::IdentificadorProveedor
                     .eq(Some(firebase_uid.to_string())),
             )
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)
     }
@@ -167,7 +169,7 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
             ..Default::default()
         };
 
-        nuevo.insert(&self.db).await.map_err(AppError::from_db)
+        nuevo.insert(&*self.db).await.map_err(AppError::from_db)
     }
 
     async fn actualizar_datos(
@@ -180,7 +182,7 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
         // SeaORM exige este patron (load → mutate → save) cuando hay triggers
         // que dependen de OLD/NEW (en este caso, `set_actualizado_en`).
         let fila = proveedor_autenticacion::Entity::find_by_id(id)
-            .one(&self.db)
+            .one(&*self.db)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| {
@@ -194,7 +196,7 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
         if let Some(d) = datos {
             active.datos_proveedor = Set(Some(d));
         }
-        active.update(&self.db).await.map_err(AppError::from_db)?;
+        active.update(&*self.db).await.map_err(AppError::from_db)?;
         Ok(())
     }
 
@@ -204,7 +206,7 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
         let cuantos = proveedor_autenticacion::Entity::find()
             .filter(proveedor_autenticacion::Column::IdUsuario.eq(id_usuario))
             .filter(proveedor_autenticacion::Column::Proveedor.eq(Some("anonymous".to_string())))
-            .count(&self.db)
+            .count(&*self.db)
             .await
             .map_err(AppError::from_db)?;
         Ok(cuantos > 0)

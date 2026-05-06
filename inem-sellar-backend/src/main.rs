@@ -16,27 +16,21 @@
 //! cargo doc --no-deps --open
 //! ```
 
-mod config;
-mod db;
-mod errors;
-mod handlers;
-mod middleware;
-mod models;
-mod repositories;
-mod routes;
-mod services;
-
 use salvo::affix_state;
 use salvo::oapi::security::{Http, HttpAuthScheme, SecurityScheme};
 use salvo::oapi::{Info, OpenApi};
 use salvo::prelude::*;
 
-use crate::repositories::{
+// Importamos los modulos desde la lib (`src/lib.rs`). El binario es solo el
+// punto de arranque; la logica vive en la libreria para poder ser testeada.
+use inem_sellar_backend::config::AppConfig;
+use inem_sellar_backend::repositories::{
     SeaAuthRepo, SeaConfiguracionRepo, SeaConsejoRepo, SeaCursoRepo, SeaGeografiaRepo,
     SeaOfertaRepo, SeaPrestacionRepo, SeaProveedorAutenticacionRepo, SeaReporteRepo,
     SeaUsuarioRepo, SeaVotoRepo,
 };
-use crate::services::{AuthService, FirebaseVerifier};
+use inem_sellar_backend::services::{AuthService, FirebaseVerifier};
+use inem_sellar_backend::{db, routes};
 
 /// Handler basico que responde con "Hello World".
 ///
@@ -79,7 +73,7 @@ async fn main() {
     // DATABASE_URL y SERVER_ADDR esten disponibles. `from_env()` hace panic
     // con mensaje claro si faltan variables obligatorias — fallo rapido
     // intencionado en arranque.
-    let cfg = config::AppConfig::from_env();
+    let cfg = AppConfig::from_env();
 
     // Inicializamos el sistema de logging estructurado.
     // `fmt()` configura el formato de salida (texto legible por humanos).
@@ -93,7 +87,15 @@ async fn main() {
 
     // Creamos la conexion a PostgreSQL via SeaORM.
     // SeaORM gestiona el pool internamente (usa SQLx por debajo).
-    let db = db::init_db(&cfg).await;
+    //
+    // # Por que `Arc<DatabaseConnection>` y no `DatabaseConnection` directo
+    // Con el feature `mock` activado en tests, `DatabaseConnection` deja de
+    // implementar `Clone` (porque `MockDatabaseConnection` es un FIFO con
+    // estado y no es Clone-able). Envolverla en `Arc` desacopla el contrato
+    // de inyeccion del feature flag: tanto en produccion como en tests, los
+    // repos reciben `Arc<DatabaseConnection>` y `Arc::clone` es siempre cheap
+    // (solo incrementa un AtomicUsize, no copia datos).
+    let db = std::sync::Arc::new(db::init_db(&cfg).await);
 
     // Creamos servicios y repositorios, inyectando la conexion.
     let auth_service = AuthService::new(cfg.jwt_secret.clone(), cfg.jwt_expiracion_minutos);
@@ -101,17 +103,18 @@ async fn main() {
     // que valida en cada token entrante. El cache de JWKS de Google se
     // poblara perezosamente en el primer login Firebase.
     let firebase_verifier = FirebaseVerifier::new(cfg.firebase_project_id.clone());
-    let geo_repo = SeaGeografiaRepo::new(db.clone());
-    let auth_repo = SeaAuthRepo::new(db.clone());
-    let proveedor_autenticacion_repo = SeaProveedorAutenticacionRepo::new(db.clone());
-    let oferta_repo = SeaOfertaRepo::new(db.clone());
-    let consejo_repo = SeaConsejoRepo::new(db.clone());
-    let curso_repo = SeaCursoRepo::new(db.clone());
-    let voto_repo = SeaVotoRepo::new(db.clone());
-    let reporte_repo = SeaReporteRepo::new(db.clone());
-    let prestacion_repo = SeaPrestacionRepo::new(db.clone());
-    let configuracion_repo = SeaConfiguracionRepo::new(db.clone());
-    let usuario_repo = SeaUsuarioRepo::new(db.clone());
+    let geo_repo = SeaGeografiaRepo::new(std::sync::Arc::clone(&db));
+    let auth_repo = SeaAuthRepo::new(std::sync::Arc::clone(&db));
+    let proveedor_autenticacion_repo =
+        SeaProveedorAutenticacionRepo::new(std::sync::Arc::clone(&db));
+    let oferta_repo = SeaOfertaRepo::new(std::sync::Arc::clone(&db));
+    let consejo_repo = SeaConsejoRepo::new(std::sync::Arc::clone(&db));
+    let curso_repo = SeaCursoRepo::new(std::sync::Arc::clone(&db));
+    let voto_repo = SeaVotoRepo::new(std::sync::Arc::clone(&db));
+    let reporte_repo = SeaReporteRepo::new(std::sync::Arc::clone(&db));
+    let prestacion_repo = SeaPrestacionRepo::new(std::sync::Arc::clone(&db));
+    let configuracion_repo = SeaConfiguracionRepo::new(std::sync::Arc::clone(&db));
+    let usuario_repo = SeaUsuarioRepo::new(db);
 
     // Inyectamos todos los servicios y repos en el Depot de Salvo.
     //
