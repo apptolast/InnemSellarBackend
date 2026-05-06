@@ -46,6 +46,66 @@ const CLOCK_SKEW_SECS: u64 = 60;
 /// rapido en vez de bloquear handlers eternamente.
 const JWKS_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
+// ─── Provider whitelist tipada ────────────────────────────────────────────
+
+/// Conjunto de Firebase `sign_in_provider` que el backend acepta.
+///
+/// # Por que un enum en vez de comparaciones de string sueltas
+/// El `match` exhaustivo en el handler dejara de COMPILAR el dia que se
+/// anada `Apple` y se olvide cubrir esa rama. Centraliza los literales
+/// en un solo sitio y evita que un provider nuevo pase silenciosamente
+/// por el camino equivocado.
+///
+/// # Por que `Copy`
+/// El enum no tiene datos asociados (3 variantes unitarias), asi que
+/// copiarlo es trivial y permite pasarlo por valor sin ceremonia
+/// (`fn(provider: SignInProvider)` en vez de `&SignInProvider`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignInProvider {
+    /// Firebase OAuth con Google. `sign_in_provider == "google.com"`.
+    GoogleCom,
+    /// Firebase Email/Password. `sign_in_provider == "password"`.
+    Password,
+    /// Firebase Anonymous Auth. `sign_in_provider == "anonymous"`.
+    Anonymous,
+}
+
+impl SignInProvider {
+    /// Devuelve el literal Firebase que se guarda en
+    /// `proveedores_autenticacion.proveedor` y se serializa en
+    /// `usuario.proveedor` de la respuesta JSON al cliente.
+    ///
+    /// El round-trip `try_from(p.as_str()) == Ok(p)` se verifica en tests.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::GoogleCom => "google.com",
+            Self::Password => "password",
+            Self::Anonymous => "anonymous",
+        }
+    }
+}
+
+impl TryFrom<&str> for SignInProvider {
+    type Error = String;
+
+    /// Convierte el `sign_in_provider` recibido de Firebase a un
+    /// `SignInProvider` tipado.
+    ///
+    /// # Por que `Err(String)` y no un enum de error
+    /// El caller (handler `login_firebase`) usa el literal desconocido
+    /// para construir un mensaje 400 informativo del estilo
+    /// `"proveedor `apple.com` no soportado todavia"`. Devolver el string
+    /// original ahorra una capa de mapeo y mantiene el caller delgado.
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "google.com" => Ok(Self::GoogleCom),
+            "password" => Ok(Self::Password),
+            "anonymous" => Ok(Self::Anonymous),
+            other => Err(other.to_string()),
+        }
+    }
+}
+
 // ─── Claims del Firebase ID Token ─────────────────────────────────────────
 
 /// Datos del proveedor concreto que firmo el token (claim `firebase`).
@@ -118,14 +178,15 @@ pub struct FirebaseClaims {
 }
 
 impl FirebaseClaims {
-    /// `true` si el token corresponde a un usuario anonimo de Firebase.
-    pub fn is_anonymous(&self) -> bool {
-        self.firebase.sign_in_provider == "anonymous"
-    }
-
-    /// `true` si el token corresponde a un login con Google.
-    pub fn is_google(&self) -> bool {
-        self.firebase.sign_in_provider == "google.com"
+    /// Convierte el campo `sign_in_provider` del claim `firebase` a un
+    /// `SignInProvider` tipado.
+    ///
+    /// Devuelve `Err(literal)` si el provider no esta en la whitelist
+    /// (Apple, phone, etc., todavia no soportados). El caller
+    /// (`login_firebase`) usa ese literal para construir un 400 con un
+    /// mensaje accionable para el cliente.
+    pub fn provider(&self) -> Result<SignInProvider, String> {
+        SignInProvider::try_from(self.firebase.sign_in_provider.as_str())
     }
 }
 
@@ -378,7 +439,7 @@ fn parse_max_age(header: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_max_age;
+    use super::{SignInProvider, parse_max_age};
 
     #[test]
     fn parsea_max_age_simple() {
@@ -399,5 +460,51 @@ mod tests {
     #[test]
     fn devuelve_none_si_max_age_no_es_numero() {
         assert_eq!(parse_max_age("max-age=abc"), None);
+    }
+
+    // ─── SignInProvider ───────────────────────────────────────────────────
+
+    #[test]
+    fn provider_google_com_se_parsea() {
+        assert_eq!(
+            SignInProvider::try_from("google.com"),
+            Ok(SignInProvider::GoogleCom)
+        );
+    }
+
+    #[test]
+    fn provider_password_se_parsea() {
+        assert_eq!(
+            SignInProvider::try_from("password"),
+            Ok(SignInProvider::Password)
+        );
+    }
+
+    #[test]
+    fn provider_anonymous_se_parsea() {
+        assert_eq!(
+            SignInProvider::try_from("anonymous"),
+            Ok(SignInProvider::Anonymous)
+        );
+    }
+
+    #[test]
+    fn provider_desconocido_devuelve_literal_en_err() {
+        assert_eq!(
+            SignInProvider::try_from("apple.com"),
+            Err("apple.com".to_string())
+        );
+        assert_eq!(SignInProvider::try_from(""), Err(String::new()));
+    }
+
+    #[test]
+    fn provider_as_str_es_consistente_con_try_from() {
+        for p in [
+            SignInProvider::GoogleCom,
+            SignInProvider::Password,
+            SignInProvider::Anonymous,
+        ] {
+            assert_eq!(SignInProvider::try_from(p.as_str()), Ok(p));
+        }
     }
 }

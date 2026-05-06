@@ -17,22 +17,26 @@ use crate::models::{proveedor_autenticacion, usuario};
 use crate::repositories::{
     AuthRepo, ProveedorAutenticacionRepo, SeaAuthRepo, SeaProveedorAutenticacionRepo,
 };
-use crate::services::firebase_verifier::FirebaseClaims;
+use crate::services::firebase_verifier::{FirebaseClaims, SignInProvider};
 use crate::services::{AuthService, FirebaseVerifier};
 
 // ─── Constantes de proveedores ───────────────────────────────────
 // Centralizadas para evitar typos y facilitar busquedas en el codigo.
+//
+// Para identidades Firebase (`/auth/firebase`) el provider se obtiene del
+// enum tipado `SignInProvider` (whitelist: google.com, password, anonymous);
+// estas constantes se usan SOLO en los flujos legacy email/password y
+// anonimo-sin-firebase, que se borraran en el siguiente paso del refactor.
 
 /// Identificador del proveedor en la tabla `proveedores_autenticacion`
-/// para logins via Firebase (Google y futuros providers federados).
-const PROVEEDOR_FIREBASE: &str = "firebase";
-
-/// Identificador del proveedor en la tabla `proveedores_autenticacion`
-/// para usuarios anonimos creados con `/auth/anonimo`.
+/// para usuarios anonimos creados con `/auth/anonimo` (legacy, sin
+/// Firebase). Coincide intencionalmente con el `sign_in_provider` de
+/// Firebase anonymous (`SignInProvider::Anonymous.as_str()`) para que
+/// el filtro `es_anonimo()` siga unificando ambas fuentes.
 const PROVEEDOR_ANONYMOUS: &str = "anonymous";
 
 /// Etiqueta legible para el frontend en `UsuarioResponse.proveedor`
-/// en flujos email/password.
+/// en flujos email/password legacy.
 const ETIQUETA_PROVEEDOR_EMAIL: &str = "email";
 
 // ─── DTOs (Data Transfer Objects) ────────────────────────────────
@@ -465,32 +469,36 @@ pub async fn logout(
     }))
 }
 
-// ─── Login con Firebase (Google + futuros providers) ─────────────
+// ─── Login con Firebase (handshake unico para todos los providers) ─
 
-/// POST /api/v1/auth/firebase — Login con Firebase ID Token.
+/// POST /api/v1/auth/firebase — Handshake unico con Firebase ID Token.
 ///
-/// La app cliente completa el login con Google via FirebaseAuth y obtiene
-/// un ID Token JWT firmado por Google. El backend lo verifica contra los
-/// JWKS de Google y, si es valido:
-///   - Si el `firebase_uid` ya existe en `proveedores_autenticacion`:
-///     carga al usuario, refresca avatar/nombre si los tenia vacios,
-///     actualiza `datos_proveedor` con el nuevo snapshot.
-///   - Si no existe pero hay un usuario con el mismo email:
-///     - Si Firebase certifica `email_verified=true`: vincula la identidad
-///       Google al usuario existente (account-linking automatico).
-///     - Si `email_verified=false`: 409 Conflict — exige login email/password
-///       primero para vincular manualmente.
-///   - Si no existe usuario con ese email (o email es None): crea un usuario
-///     OAuth nuevo y la identidad Firebase asociada.
+/// La app cliente delega TODO el login en FirebaseAuth (Google,
+/// email/password, anonimo) y entrega aqui el ID Token JWT firmado por
+/// Google con RS256. El backend lo verifica contra los JWKS de Google,
+/// tipa el `sign_in_provider` con la whitelist `SignInProvider`, y
+/// resuelve un usuario segun el caso:
 ///
-/// # Por que rechazamos `sign_in_provider="anonymous"`
-/// Los anonimos tienen su propio endpoint `/auth/anonimo`. Si llegasen aqui,
-/// crearian usuarios con `firebase_uid` pero sin email — un estado raro.
-/// Es mas claro mantener la separacion: este endpoint es para identidades
-/// federadas (Google), `/auth/anonimo` para anonimos puros.
+///   - **`google.com` / `password`**: si la identidad ya existe (mismo
+///     `firebase_uid` y mismo provider) la reusa y refresca su
+///     snapshot JSONB. Si no, intenta auto-link por email cuando
+///     `email_verified=true` (asi un usuario legacy con `hash_contrasena`
+///     se enlaza automaticamente). Si el email coincide pero NO esta
+///     verificado, devuelve 409 (anti-takeover). Si nada coincide, crea
+///     un usuario OAuth nuevo.
+///   - **`anonymous`**: crea un usuario sin email/hash y guarda el
+///     `firebase_uid` como `identificador_proveedor`. El JWT propio
+///     emitido lleva `anonimo=true` para que el cliente sepa que falta
+///     completar el registro.
+///   - **Lookup defensivo (`linkWithCredential` en cliente)**: si el
+///     `firebase_uid` ya existe en OTRO provider, reusa el mismo
+///     `id_usuario` y solo anade la nueva fila de identidad. Evita
+///     duplicar usuarios cuando un anonimo se actualiza a Google/password
+///     conservando su uid.
 ///
 /// # Codigos de error
-/// - 400: `id_token` vacio.
+/// - 400: `id_token` vacio o `sign_in_provider` no soportado todavia
+///   (Apple, phone, etc.).
 /// - 401: token invalido (firma, expirado, audience, issuer, kid desconocido).
 /// - 409: account linking bloqueado por `email_verified=false`.
 /// - 500: fallo al descargar JWKS de Google o error de BD.
@@ -526,39 +534,30 @@ pub async fn login_firebase(
     // ── 3. Verificar el ID Token de Firebase (criptografia + claims) ──
     let claims = firebase.verify(&body.id_token).await?;
 
-    // Aceptamos solo Google por ahora. Anonymous va por /auth/anonimo;
-    // Apple/etc. se anadiran cuando el cliente los soporte.
-    if claims.is_anonymous() {
-        return Err(AppError::BadRequest(
-            "para usuarios anonimos usa POST /api/v1/auth/anonimo".into(),
-        ));
-    }
-    if !claims.is_google() {
-        tracing::warn!(
-            provider = %claims.firebase.sign_in_provider,
-            "sign_in_provider de Firebase no soportado todavia"
-        );
-        return Err(AppError::BadRequest(format!(
-            "proveedor `{}` no soportado todavia",
-            claims.firebase.sign_in_provider
-        )));
-    }
+    // ── 4. Tipar el provider via whitelist (rechaza Apple/phone/etc. con 400) ──
+    let provider = claims.provider().map_err(|p| {
+        tracing::warn!(provider = %p, "sign_in_provider de Firebase no soportado todavia");
+        AppError::BadRequest(format!("proveedor `{p}` no soportado todavia"))
+    })?;
+    let anonimo = matches!(provider, SignInProvider::Anonymous);
 
-    // ── 4. Resolver el usuario (upsert + account-linking) ──
-    let usuario = upsert_usuario_firebase(&auth_repo, &proveedor_repo, &claims).await?;
+    // ── 5. Resolver el usuario (upsert + account-linking + lookup defensivo) ──
+    let usuario = upsert_usuario_firebase(&auth_repo, &proveedor_repo, &claims, provider).await?;
 
-    // ── 5. Marcar ultimo login y refrescar perfil con los datos de Google ──
+    // ── 6. Ultimo login + enriquecer perfil con name/picture (solo no-anonimos) ──
     auth_repo.actualizar_ultimo_login(usuario.id).await?;
-    auth_repo
-        .enriquecer_perfil_si_vacio(
-            usuario.id,
-            claims.name.as_deref(),
-            claims.picture.as_deref(),
-        )
-        .await?;
+    if !anonimo {
+        auth_repo
+            .enriquecer_perfil_si_vacio(
+                usuario.id,
+                claims.name.as_deref(),
+                claims.picture.as_deref(),
+            )
+            .await?;
+    }
 
-    // ── 6. Emitir tokens propios del backend (HS256) ──
-    let access_token = auth_service.generar_access_token_con_flag(usuario.id, false)?;
+    // ── 7. Emitir tokens propios (HS256, flag anonimo derivado del provider) ──
+    let access_token = auth_service.generar_access_token_con_flag(usuario.id, anonimo)?;
     let refresh_raw = auth_service.generar_refresh_token();
     let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
     let expira = (Utc::now() + Duration::days(30)).fixed_offset();
@@ -567,7 +566,7 @@ pub async fn login_firebase(
         .guardar_refresh_token(usuario.id, &refresh_hash, user_agent.as_deref(), expira)
         .await?;
 
-    // ── 7. Recargar el usuario (puede haber cambiado `nombre_visible` / `url_avatar`) ──
+    // ── 8. Recargar el usuario (puede haber cambiado nombre_visible / url_avatar) ──
     let usuario_final = auth_repo
         .buscar_usuario_por_id(usuario.id)
         .await?
@@ -578,8 +577,8 @@ pub async fn login_firebase(
         refresh_token: refresh_raw,
         usuario: construir_usuario_response(
             &usuario_final,
-            PROVEEDOR_FIREBASE,
-            false,
+            provider.as_str(),
+            anonimo,
             claims.email_verified,
         ),
     }))
@@ -589,67 +588,117 @@ pub async fn login_firebase(
 /// vinculando segun haga falta.
 ///
 /// Extraida del handler para mantener el flujo principal legible.
+/// Cubre 5 casos en orden:
+///   1. Identidad EXACTA `(provider, firebase_uid)` ya existente -> reusa.
+///   2. `firebase_uid` existe en OTRO provider (`linkWithCredential`) -> reusa
+///      `id_usuario` y solo anade la nueva fila de identidad.
+///   3. Anonymous nuevo -> crea usuario sin email/hash + identidad.
+///   4. password/google.com con email coincidente y verificado -> auto-link.
+///      Si el email NO esta verificado -> 409 (anti-takeover).
+///   5. password/google.com sin match -> crea usuario OAuth nuevo + identidad.
 async fn upsert_usuario_firebase(
     auth_repo: &SeaAuthRepo,
     proveedor_repo: &SeaProveedorAutenticacionRepo,
     claims: &FirebaseClaims,
+    provider: SignInProvider,
 ) -> Result<usuario::Model, AppError> {
+    let provider_str = provider.as_str();
     let datos = construir_datos_proveedor_firebase(claims);
 
-    // 1. Existe ya esta identidad Firebase?
+    // 1. Identidad EXACTA (provider, sub) ya existe -> refresca y devuelve.
     if let Some(prov) = proveedor_repo
-        .buscar_por_proveedor_e_identificador(PROVEEDOR_FIREBASE, &claims.sub)
+        .buscar_por_proveedor_e_identificador(provider_str, &claims.sub)
         .await?
     {
-        // Identidad ya conocida: refresca el snapshot del proveedor y
-        // devuelve el usuario asociado.
         proveedor_repo
             .actualizar_datos(prov.id, claims.email.as_deref(), Some(datos))
             .await?;
         return cargar_usuario_obligatorio(auth_repo, prov.id_usuario).await;
     }
 
-    // 2. No existe la identidad Firebase. Si hay email, intentar account-linking.
+    // 2. Lookup defensivo: el mismo `sub` ya existe en OTRO provider.
+    //    Caso: usuario anonimo que hace `linkWithCredential` en el cliente y
+    //    conserva su firebase_uid pero cambia de provider. Reusamos el
+    //    `id_usuario` y solo anadimos la nueva fila de identidad para no
+    //    crear un usuario duplicado.
+    if let Some(prov) = proveedor_repo
+        .buscar_por_firebase_uid_cualquier_provider(&claims.sub)
+        .await?
+    {
+        tracing::info!(
+            firebase_uid = %claims.sub,
+            provider_existente = %prov.proveedor.as_deref().unwrap_or("(null)"),
+            provider_nuevo = %provider_str,
+            "firebase_uid existente en otro provider, anadiendo nueva identidad al mismo usuario"
+        );
+        crear_proveedor_identidad(proveedor_repo, prov.id_usuario, provider_str, claims, datos)
+            .await?;
+        return cargar_usuario_obligatorio(auth_repo, prov.id_usuario).await;
+    }
+
+    // 3. Anonymous nuevo: crea usuario sin email/hash, fila con identificador=firebase_uid.
+    if matches!(provider, SignInProvider::Anonymous) {
+        let nuevo = auth_repo.crear_usuario_anonimo().await?;
+        crear_proveedor_identidad(proveedor_repo, nuevo.id, provider_str, claims, datos).await?;
+        return Ok(nuevo);
+    }
+
+    // 4. password/google.com con email coincidente -> auto-link si email_verified=true.
+    //    Asi un usuario legacy con `hash_contrasena` se enlaza automaticamente
+    //    a su nueva identidad Firebase password sin intervencion manual.
     if let Some(email) = claims.email.as_deref()
         && let Some(usuario_existente) = auth_repo.buscar_por_email(email).await?
     {
-        // Politica: solo enlazar automaticamente si Google certifica el email.
-        // Sin verified=true podria un atacante registrar un proveedor OAuth
-        // con un email ajeno y apoderarse de la cuenta local.
+        // Politica: sin verified=true un atacante podria registrar un
+        // proveedor OAuth con un email ajeno y apoderarse de la cuenta local.
         if claims.email_verified != Some(true) {
             return Err(AppError::Conflict(
-                "ya existe una cuenta con este email; verifica el email en Google y reintenta o \
-                 inicia sesion con email/contrasena para vincular Google manualmente"
+                "ya existe una cuenta con este email; verifica el email en tu \
+                 proveedor y reintenta para vincular automaticamente"
                     .into(),
             ));
         }
-        crear_proveedor_firebase(proveedor_repo, usuario_existente.id, claims, datos).await?;
+        crear_proveedor_identidad(
+            proveedor_repo,
+            usuario_existente.id,
+            provider_str,
+            claims,
+            datos,
+        )
+        .await?;
         return Ok(usuario_existente);
     }
 
-    // 3. Es un usuario nuevo (no encontrado por firebase_uid ni por email).
-    let usuario_nuevo = auth_repo
+    // 5. password/google.com sin match previo -> usuario OAuth nuevo + identidad.
+    let nuevo = auth_repo
         .crear_usuario_oauth(
             claims.email.as_deref(),
             claims.name.as_deref(),
             claims.picture.as_deref(),
         )
         .await?;
-    crear_proveedor_firebase(proveedor_repo, usuario_nuevo.id, claims, datos).await?;
-    Ok(usuario_nuevo)
+    crear_proveedor_identidad(proveedor_repo, nuevo.id, provider_str, claims, datos).await?;
+    Ok(nuevo)
 }
 
-/// Helper para insertar la fila en `proveedores_autenticacion` de Firebase.
-async fn crear_proveedor_firebase(
+/// Inserta una fila en `proveedores_autenticacion` que representa la
+/// identidad Firebase de un usuario en un provider concreto.
+///
+/// `provider_str` es el literal `sign_in_provider` (ya validado contra
+/// la whitelist tipada `SignInProvider`); ej: `"google.com"`, `"password"`,
+/// `"anonymous"`. Se guarda en la columna `proveedor`, mientras que
+/// `claims.sub` (el `firebase_uid`) va a `identificador_proveedor`.
+async fn crear_proveedor_identidad(
     proveedor_repo: &SeaProveedorAutenticacionRepo,
     id_usuario: Uuid,
+    provider_str: &str,
     claims: &FirebaseClaims,
     datos: serde_json::Value,
 ) -> Result<proveedor_autenticacion::Model, AppError> {
     proveedor_repo
         .crear(
             id_usuario,
-            PROVEEDOR_FIREBASE,
+            provider_str,
             Some(&claims.sub),
             claims.email.as_deref(),
             Some(datos),

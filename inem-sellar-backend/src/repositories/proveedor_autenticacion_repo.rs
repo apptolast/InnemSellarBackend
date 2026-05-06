@@ -39,6 +39,24 @@ pub trait ProveedorAutenticacionRepo: Send + Sync {
         identificador: &str,
     ) -> impl std::future::Future<Output = Result<Option<proveedor_autenticacion::Model>, AppError>> + Send;
 
+    /// Busca una identidad SOLO por `firebase_uid`, ignorando el provider.
+    ///
+    /// # Por que existe este metodo
+    /// Si el cliente usa `FirebaseAuth.linkWithCredential(...)` para subir
+    /// un usuario anonimo a Google/email-pwd, Firebase conserva el mismo
+    /// `firebase_uid` pero cambia el `sign_in_provider` del siguiente token.
+    /// Sin este lookup defensivo, el handler crearia un usuario duplicado.
+    /// Con el, detectamos que el `sub` ya existe en otro provider y reusamos
+    /// el `id_usuario`, anadiendo solo la nueva fila de identidad.
+    ///
+    /// Devuelve la primera fila encontrada (PostgreSQL no garantiza orden,
+    /// pero todas las filas con el mismo `firebase_uid` apuntan al mismo
+    /// `id_usuario` por construccion, asi que cualquiera vale).
+    fn buscar_por_firebase_uid_cualquier_provider(
+        &self,
+        firebase_uid: &str,
+    ) -> impl std::future::Future<Output = Result<Option<proveedor_autenticacion::Model>, AppError>> + Send;
+
     /// Crea una nueva identidad enlazada a un usuario existente.
     ///
     /// `identificador` es `Option<&str>` porque los anonimos no tienen
@@ -102,6 +120,26 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
             .filter(
                 proveedor_autenticacion::Column::IdentificadorProveedor
                     .eq(Some(identificador.to_string())),
+            )
+            .one(&self.db)
+            .await
+            .map_err(AppError::from_db)
+    }
+
+    async fn buscar_por_firebase_uid_cualquier_provider(
+        &self,
+        firebase_uid: &str,
+    ) -> Result<Option<proveedor_autenticacion::Model>, AppError> {
+        // Sin filtro por proveedor: solo el `identificador_proveedor`. La
+        // consulta no usa el indice unico parcial (que necesita ambos campos)
+        // y por tanto es un seq scan en el peor caso, pero el camino caliente
+        // (login normal) NO entra aqui — solo lo dispara el caso `linkWithCredential`,
+        // que es raro. El volumen de filas en `proveedores_autenticacion` es
+        // bajo (1-3 por usuario), asi que el coste es aceptable.
+        proveedor_autenticacion::Entity::find()
+            .filter(
+                proveedor_autenticacion::Column::IdentificadorProveedor
+                    .eq(Some(firebase_uid.to_string())),
             )
             .one(&self.db)
             .await
