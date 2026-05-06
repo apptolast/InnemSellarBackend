@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CLOCK_SKEW_SECS","FALLBACK_TTL","JWKS_FETCH_TIMEOUT","JWKS_URL_DEFAULT"],"fn":["parse_max_age"],"struct":["FirebaseClaims","FirebaseProviderInfo","FirebaseVerifier","JwksCache"]};
