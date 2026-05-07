@@ -19,6 +19,7 @@ use crate::errors::AppError;
 use crate::models::enums::{MotivoReporte, TipoContenido};
 use crate::repositories::reporte_repo::CrearReporteDto;
 use crate::repositories::{ReporteRepo, SeaReporteRepo};
+use crate::services::EmailNotifier;
 
 // ─── Helpers de parseo ────────────────────────────────────────────
 
@@ -148,6 +149,38 @@ pub async fn crear_reporte(
     };
 
     let reporte = repo.crear_reporte(id_reportero, dto).await?;
+
+    // Notificacion por email al admin — fire-and-forget.
+    //
+    // # Por que `tokio::spawn` y no `.await`
+    // El envio SMTP puede tardar varios segundos (DNS + TLS + auth + envio).
+    // Si lo esperamos, el cliente HTTP ve esa latencia en cada reporte. En
+    // su lugar, lanzamos una tarea independiente: el handler responde de
+    // inmediato con `Ok(...)` y el envio ocurre en segundo plano.
+    //
+    // # Por que `if let Ok(...)` y no `?`
+    // Si por algun motivo `EmailNotifier` no esta inyectado en el `Depot`
+    // (tests sin DI, configuracion erronea), preferimos seguir creando
+    // reportes sin email a devolver 500 al usuario. El reporte ya esta en
+    // BD; el admin puede consultar `/reportes/pendientes` igualmente.
+    //
+    // # Por que `tracing::warn!` y no propagar el error
+    // Un fallo SMTP (host caido, password mala, etc.) no debe romper el
+    // flujo del usuario. Lo logueamos con suficiente contexto para que el
+    // operador lo detecte en logs/alertas y lo arregle.
+    if let Ok(notifier) = depot.obtain::<EmailNotifier>() {
+        let notifier = notifier.clone();
+        let reporte_clonado = reporte.clone();
+        tokio::spawn(async move {
+            if let Err(e) = notifier.enviar_notificacion_reporte(&reporte_clonado).await {
+                tracing::warn!(
+                    reporte_id = %reporte_clonado.id,
+                    error = ?e,
+                    "No se pudo enviar email de notificacion del reporte"
+                );
+            }
+        });
+    }
 
     Ok(Json(serde_json::to_value(reporte).unwrap_or_default()))
 }

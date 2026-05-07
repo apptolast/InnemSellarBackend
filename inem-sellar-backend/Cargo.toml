@@ -37,6 +37,22 @@ rand = "0.8"
 #   - `json`: habilita `Response::json::<T>()` para deserializar el JWKS de Google.
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
+# `lettre` es el cliente SMTP estandar de Rust. Se usa para enviar al admin
+# una notificacion por email cada vez que un usuario crea un reporte.
+# Configuracion:
+#   - `default-features = false`: desactiva native-tls/OpenSSL.
+#   - `smtp-transport`: habilita el transporte SMTP (vs solo el builder de mensajes).
+#   - `tokio1-rustls-tls`: transporte async sobre tokio + rustls (sin libssl-dev),
+#     consistente con el resto del crate (sea-orm + reqwest tambien usan rustls).
+#   - `builder`: habilita `Message::builder()` para construir el mensaje.
+#   - `hostname`: necesario para el saludo EHLO al servidor SMTP.
+lettre = { version = "0.11", default-features = false, features = [
+    "smtp-transport",
+    "tokio1-rustls-tls",
+    "builder",
+    "hostname",
+] }
+
 # `[dev-dependencies]` se compilan SOLO al ejecutar `cargo test` o `cargo bench`,
 # nunca entran en el binario de produccion.
 #

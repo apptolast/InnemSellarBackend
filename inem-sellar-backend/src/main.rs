@@ -29,7 +29,7 @@ use inem_sellar_backend::repositories::{
     SeaOfertaRepo, SeaPrestacionRepo, SeaProveedorAutenticacionRepo, SeaReporteRepo,
     SeaUsuarioRepo, SeaVotoRepo,
 };
-use inem_sellar_backend::services::{AuthService, FirebaseVerifier};
+use inem_sellar_backend::services::{AuthService, EmailNotifier, FirebaseVerifier};
 use inem_sellar_backend::{db, routes};
 
 /// Handler basico que responde con "Hello World".
@@ -103,6 +103,11 @@ async fn main() {
     // que valida en cada token entrante. El cache de JWKS de Google se
     // poblara perezosamente en el primer login Firebase.
     let firebase_verifier = FirebaseVerifier::new(cfg.firebase_project_id.clone());
+    // Servicio de notificaciones por email. Si SMTP_PASSWORD o REPORT_EMAIL_TO
+    // estan vacios, se inicializa en modo "deshabilitado": permanece en el
+    // Depot pero no envia nada. Util para arrancar sin SMTP en dev local.
+    let email_notifier = EmailNotifier::from_config(&cfg)
+        .expect("Error inicializando EmailNotifier — revisa SMTP_USER / REPORT_EMAIL_FROM / REPORT_EMAIL_TO");
     let geo_repo = SeaGeografiaRepo::new(std::sync::Arc::clone(&db));
     let auth_repo = SeaAuthRepo::new(std::sync::Arc::clone(&db));
     let proveedor_autenticacion_repo =
@@ -128,6 +133,7 @@ async fn main() {
         .get(hello)
         .hoop(affix_state::inject(auth_service))
         .hoop(affix_state::inject(firebase_verifier))
+        .hoop(affix_state::inject(email_notifier))
         .hoop(affix_state::inject(geo_repo))
         .hoop(affix_state::inject(auth_repo))
         .hoop(affix_state::inject(proveedor_autenticacion_repo))

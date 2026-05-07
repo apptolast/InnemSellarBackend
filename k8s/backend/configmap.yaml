@@ -13,3 +13,13 @@ data:
   # Project ID de Firebase para validar los ID Tokens (aud + iss).
   # No es secreto: aparece en google-services.json publico y en cada token JWT.
   FIREBASE_PROJECT_ID: "inemsellar-app"
+  # ── SMTP (notificaciones de reportes al admin) ─────────────────────────
+  # Reutiliza el SMTP de Gmail Workspace que ya usa InvernaderosAPI.
+  # El SMTP_PASSWORD vive aparte en el Secret `inem-sellar-backend-secret`.
+  # Si SMTP_PASSWORD o REPORT_EMAIL_TO quedan vacios, el envio se deshabilita
+  # silenciosamente (el handler de POST /api/v1/reportes sigue funcionando).
+  SMTP_HOST: "smtp.gmail.com"
+  SMTP_PORT: "587"
+  SMTP_USER: "admin@apptolast.com"
+  REPORT_EMAIL_FROM: "admin@apptolast.com"
+  REPORT_EMAIL_TO: "admin@apptolast.com"

@@ -69,6 +69,56 @@ pub struct AppConfig {
     /// y `GoogleService-Info.plist` (iOS) del cliente Flutter.
     /// Se lee de la variable de entorno `FIREBASE_PROJECT_ID`.
     pub firebase_project_id: String,
+
+    // ── Configuracion SMTP (notificaciones de reportes al admin) ────────────
+    //
+    // Todos los campos son opcionales (default: cadena vacia / 587). Si
+    // `smtp_password` o `report_email_to` quedan vacios, el `EmailNotifier`
+    // se construye en modo deshabilitado y los handlers siguen funcionando
+    // sin enviar email — util para arrancar el servicio en dev sin SMTP.
+    /// Host del servidor SMTP. Se lee de `SMTP_HOST` (ej. `smtp.gmail.com`).
+    #[serde(default)]
+    pub smtp_host: String,
+
+    /// Puerto del servidor SMTP. Default: `587` (STARTTLS).
+    /// Se lee de `SMTP_PORT`.
+    #[serde(default = "default_smtp_port")]
+    pub smtp_port: u16,
+
+    /// Usuario para autenticarse en el servidor SMTP.
+    /// En Gmail Workspace coincide con la direccion de correo del remitente.
+    /// Se lee de `SMTP_USER`.
+    #[serde(default)]
+    pub smtp_user: String,
+
+    /// Contrasena (o app password en Gmail) del usuario SMTP.
+    /// CRITICO: en produccion debe inyectarse via `Secret` de Kubernetes,
+    /// nunca commitearse al repositorio. Se lee de `SMTP_PASSWORD`.
+    #[serde(default)]
+    pub smtp_password: String,
+
+    /// Direccion `From:` que aparecera en el correo al admin.
+    /// Debe coincidir con `smtp_user` (o ser un alias send-as configurado)
+    /// para que Gmail no rechace el envio. Se lee de `REPORT_EMAIL_FROM`.
+    #[serde(default)]
+    pub report_email_from: String,
+
+    /// Direccion `To:` del admin que recibe la notificacion.
+    /// Si esta vacio, las notificaciones de reportes quedan deshabilitadas.
+    /// Se lee de `REPORT_EMAIL_TO`.
+    #[serde(default)]
+    pub report_email_to: String,
+}
+
+/// Puerto SMTP por defecto: `587` (submission con STARTTLS).
+///
+/// # Por que 587 y no 465 ni 25
+/// `587` es el puerto de "submission" (RFC 6409): autenticado y con STARTTLS.
+/// `465` es SMTPS (TLS implicito) — Gmail tambien lo soporta, pero `587` es
+/// mas estandar. `25` es relay entre servidores y casi todos los proveedores
+/// lo bloquean para clientes (anti-spam).
+fn default_smtp_port() -> u16 {
+    587
 }
 
 /// Duracion por defecto del access token: 15 minutos.

@@ -46,6 +46,18 @@ spec:
                 secretKeyRef:
                   name: inem-sellar-backend-secret
                   key: JWT_SECRET
+            # Password SMTP (Gmail app password). Se inyecta en el cluster con:
+            #   kubectl -n apptolast-inemsellar patch secret inem-sellar-backend-secret \
+            #     --type=merge -p '{"stringData":{"SMTP_PASSWORD":"<APP_PASSWORD>"}}'
+            # NO se commitea al repo. Si la clave no existe en el secret, el
+            # contenedor arrancara con SMTP_PASSWORD vacio y el EmailNotifier
+            # se inicializara en modo deshabilitado (logs warning).
+            - name: SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: inem-sellar-backend-secret
+                  key: SMTP_PASSWORD
+                  optional: true
           resources:
             requests:
               memory: "128Mi"
