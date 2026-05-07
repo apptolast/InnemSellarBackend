@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["auth_service","firebase_verifier"]};
+window.SIDEBAR_ITEMS = {"mod":["auth_service","email","firebase_verifier"]};

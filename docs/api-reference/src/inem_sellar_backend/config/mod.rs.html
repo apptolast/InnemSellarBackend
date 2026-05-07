@@ -69,56 +69,106 @@
 <a href=#69 id=69 data-nosnippet>69</a>    /// y `GoogleService-Info.plist` (iOS) del cliente Flutter.
 <a href=#70 id=70 data-nosnippet>70</a>    /// Se lee de la variable de entorno `FIREBASE_PROJECT_ID`.
 <a href=#71 id=71 data-nosnippet>71</a>    </span><span class="kw">pub </span>firebase_project_id: String,
-<a href=#72 id=72 data-nosnippet>72</a>}
-<a href=#73 id=73 data-nosnippet>73</a>
-<a href=#74 id=74 data-nosnippet>74</a><span class="doccomment">/// Duracion por defecto del access token: 15 minutos.
-<a href=#75 id=75 data-nosnippet>75</a></span><span class="kw">fn </span>default_jwt_expiracion() -&gt; u64 {
-<a href=#76 id=76 data-nosnippet>76</a>    <span class="number">15
-<a href=#77 id=77 data-nosnippet>77</a></span>}
-<a href=#78 id=78 data-nosnippet>78</a>
-<a href=#79 id=79 data-nosnippet>79</a><span class="doccomment">/// Devuelve la direccion por defecto del servidor.
-<a href=#80 id=80 data-nosnippet>80</a>///
-<a href=#81 id=81 data-nosnippet>81</a>/// # Por que una funcion separada
-<a href=#82 id=82 data-nosnippet>82</a>/// `serde` requiere que el valor por defecto de un campo sea una funcion (no un literal).
-<a href=#83 id=83 data-nosnippet>83</a>/// `#[serde(default = "default_addr")]` llama a esta funcion si la variable de entorno
-<a href=#84 id=84 data-nosnippet>84</a>/// `SERVER_ADDR` no esta definida. Es una limitacion del sistema de macros de serde.
-<a href=#85 id=85 data-nosnippet>85</a>///
-<a href=#86 id=86 data-nosnippet>86</a>/// # Por que `.to_string()`
-<a href=#87 id=87 data-nosnippet>87</a>/// `"0.0.0.0:8080"` es un `&amp;str` (referencia a texto en el binario), pero necesitamos
-<a href=#88 id=88 data-nosnippet>88</a>/// un `String` (texto en el heap, owned). `.to_string()` crea esa copia en el heap.
-<a href=#89 id=89 data-nosnippet>89</a></span><span class="kw">fn </span>default_addr() -&gt; String {
-<a href=#90 id=90 data-nosnippet>90</a>    <span class="string">"localhost:8080"</span>.to_string()
-<a href=#91 id=91 data-nosnippet>91</a>}
-<a href=#92 id=92 data-nosnippet>92</a>
-<a href=#93 id=93 data-nosnippet>93</a><span class="doccomment">/// Devuelve la direccion de binding por defecto del servidor.
-<a href=#94 id=94 data-nosnippet>94</a>///
-<a href=#95 id=95 data-nosnippet>95</a>/// Misma logica que `default_addr`: serde necesita una funcion, no un literal.
-<a href=#96 id=96 data-nosnippet>96</a>/// `0.0.0.0` significa "escucha en todas las interfaces de red disponibles",
-<a href=#97 id=97 data-nosnippet>97</a>/// lo que es necesario dentro de un contenedor Docker para que el trafico
-<a href=#98 id=98 data-nosnippet>98</a>/// externo pueda llegar al proceso.
-<a href=#99 id=99 data-nosnippet>99</a></span><span class="kw">fn </span>port_addr() -&gt; String {
-<a href=#100 id=100 data-nosnippet>100</a>    <span class="string">"0.0.0.0:8080"</span>.to_string()
-<a href=#101 id=101 data-nosnippet>101</a>}
-<a href=#102 id=102 data-nosnippet>102</a>
-<a href=#103 id=103 data-nosnippet>103</a><span class="kw">impl </span>AppConfig {
-<a href=#104 id=104 data-nosnippet>104</a>    <span class="doccomment">/// Carga la configuracion desde variables de entorno.
-<a href=#105 id=105 data-nosnippet>105</a>    ///
-<a href=#106 id=106 data-nosnippet>106</a>    /// Primero carga el archivo `.env` si existe (via `dotenvy`), luego deserializa
-<a href=#107 id=107 data-nosnippet>107</a>    /// todas las variables de entorno en un `AppConfig` (via `envy`).
-<a href=#108 id=108 data-nosnippet>108</a>    ///
-<a href=#109 id=109 data-nosnippet>109</a>    /// # Por que `dotenvy::dotenv().ok()`
-<a href=#110 id=110 data-nosnippet>110</a>    /// `.ok()` convierte un `Result` en `Option`, descartando el error silenciosamente.
-<a href=#111 id=111 data-nosnippet>111</a>    /// Esto es intencionado: en produccion no habra archivo `.env` (las variables vienen
-<a href=#112 id=112 data-nosnippet>112</a>    /// del entorno del contenedor Docker), asi que no queremos que falle.
-<a href=#113 id=113 data-nosnippet>113</a>    ///
-<a href=#114 id=114 data-nosnippet>114</a>    /// # Por que `.expect()` y no `?`
-<a href=#115 id=115 data-nosnippet>115</a>    /// `expect()` hace panic con un mensaje claro si falla. Aqui es aceptable porque
-<a href=#116 id=116 data-nosnippet>116</a>    /// la configuracion es critica: sin ella, el servidor no puede arrancar. Es mejor
-<a href=#117 id=117 data-nosnippet>117</a>    /// fallar rapido con un mensaje claro que intentar continuar sin config.
-<a href=#118 id=118 data-nosnippet>118</a>    /// En handlers de API, usaremos `?` para propagar errores sin panic.
-<a href=#119 id=119 data-nosnippet>119</a>    </span><span class="kw">pub fn </span>from_env() -&gt; <span class="self">Self </span>{
-<a href=#120 id=120 data-nosnippet>120</a>        dotenvy::dotenv().ok();
-<a href=#121 id=121 data-nosnippet>121</a>        envy::from_env::&lt;<span class="self">Self</span>&gt;().expect(<span class="string">"Error cargando configuracion desde variables de entorno"</span>)
-<a href=#122 id=122 data-nosnippet>122</a>    }
-<a href=#123 id=123 data-nosnippet>123</a>}
+<a href=#72 id=72 data-nosnippet>72</a>
+<a href=#73 id=73 data-nosnippet>73</a>    <span class="comment">// ── Configuracion SMTP (notificaciones de reportes al admin) ────────────
+<a href=#74 id=74 data-nosnippet>74</a>    //
+<a href=#75 id=75 data-nosnippet>75</a>    // Todos los campos son opcionales (default: cadena vacia / 587). Si
+<a href=#76 id=76 data-nosnippet>76</a>    // `smtp_password` o `report_email_to` quedan vacios, el `EmailNotifier`
+<a href=#77 id=77 data-nosnippet>77</a>    // se construye en modo deshabilitado y los handlers siguen funcionando
+<a href=#78 id=78 data-nosnippet>78</a>    // sin enviar email — util para arrancar el servicio en dev sin SMTP.
+<a href=#79 id=79 data-nosnippet>79</a>    </span><span class="doccomment">/// Host del servidor SMTP. Se lee de `SMTP_HOST` (ej. `smtp.gmail.com`).
+<a href=#80 id=80 data-nosnippet>80</a>    </span><span class="attr">#[serde(default)]
+<a href=#81 id=81 data-nosnippet>81</a>    </span><span class="kw">pub </span>smtp_host: String,
+<a href=#82 id=82 data-nosnippet>82</a>
+<a href=#83 id=83 data-nosnippet>83</a>    <span class="doccomment">/// Puerto del servidor SMTP. Default: `587` (STARTTLS).
+<a href=#84 id=84 data-nosnippet>84</a>    /// Se lee de `SMTP_PORT`.
+<a href=#85 id=85 data-nosnippet>85</a>    </span><span class="attr">#[serde(default = <span class="string">"default_smtp_port"</span>)]
+<a href=#86 id=86 data-nosnippet>86</a>    </span><span class="kw">pub </span>smtp_port: u16,
+<a href=#87 id=87 data-nosnippet>87</a>
+<a href=#88 id=88 data-nosnippet>88</a>    <span class="doccomment">/// Usuario para autenticarse en el servidor SMTP.
+<a href=#89 id=89 data-nosnippet>89</a>    /// En Gmail Workspace coincide con la direccion de correo del remitente.
+<a href=#90 id=90 data-nosnippet>90</a>    /// Se lee de `SMTP_USER`.
+<a href=#91 id=91 data-nosnippet>91</a>    </span><span class="attr">#[serde(default)]
+<a href=#92 id=92 data-nosnippet>92</a>    </span><span class="kw">pub </span>smtp_user: String,
+<a href=#93 id=93 data-nosnippet>93</a>
+<a href=#94 id=94 data-nosnippet>94</a>    <span class="doccomment">/// Contrasena (o app password en Gmail) del usuario SMTP.
+<a href=#95 id=95 data-nosnippet>95</a>    /// CRITICO: en produccion debe inyectarse via `Secret` de Kubernetes,
+<a href=#96 id=96 data-nosnippet>96</a>    /// nunca commitearse al repositorio. Se lee de `SMTP_PASSWORD`.
+<a href=#97 id=97 data-nosnippet>97</a>    </span><span class="attr">#[serde(default)]
+<a href=#98 id=98 data-nosnippet>98</a>    </span><span class="kw">pub </span>smtp_password: String,
+<a href=#99 id=99 data-nosnippet>99</a>
+<a href=#100 id=100 data-nosnippet>100</a>    <span class="doccomment">/// Direccion `From:` que aparecera en el correo al admin.
+<a href=#101 id=101 data-nosnippet>101</a>    /// Debe coincidir con `smtp_user` (o ser un alias send-as configurado)
+<a href=#102 id=102 data-nosnippet>102</a>    /// para que Gmail no rechace el envio. Se lee de `REPORT_EMAIL_FROM`.
+<a href=#103 id=103 data-nosnippet>103</a>    </span><span class="attr">#[serde(default)]
+<a href=#104 id=104 data-nosnippet>104</a>    </span><span class="kw">pub </span>report_email_from: String,
+<a href=#105 id=105 data-nosnippet>105</a>
+<a href=#106 id=106 data-nosnippet>106</a>    <span class="doccomment">/// Direccion `To:` del admin que recibe la notificacion.
+<a href=#107 id=107 data-nosnippet>107</a>    /// Si esta vacio, las notificaciones de reportes quedan deshabilitadas.
+<a href=#108 id=108 data-nosnippet>108</a>    /// Se lee de `REPORT_EMAIL_TO`.
+<a href=#109 id=109 data-nosnippet>109</a>    </span><span class="attr">#[serde(default)]
+<a href=#110 id=110 data-nosnippet>110</a>    </span><span class="kw">pub </span>report_email_to: String,
+<a href=#111 id=111 data-nosnippet>111</a>}
+<a href=#112 id=112 data-nosnippet>112</a>
+<a href=#113 id=113 data-nosnippet>113</a><span class="doccomment">/// Puerto SMTP por defecto: `587` (submission con STARTTLS).
+<a href=#114 id=114 data-nosnippet>114</a>///
+<a href=#115 id=115 data-nosnippet>115</a>/// # Por que 587 y no 465 ni 25
+<a href=#116 id=116 data-nosnippet>116</a>/// `587` es el puerto de "submission" (RFC 6409): autenticado y con STARTTLS.
+<a href=#117 id=117 data-nosnippet>117</a>/// `465` es SMTPS (TLS implicito) — Gmail tambien lo soporta, pero `587` es
+<a href=#118 id=118 data-nosnippet>118</a>/// mas estandar. `25` es relay entre servidores y casi todos los proveedores
+<a href=#119 id=119 data-nosnippet>119</a>/// lo bloquean para clientes (anti-spam).
+<a href=#120 id=120 data-nosnippet>120</a></span><span class="kw">fn </span>default_smtp_port() -&gt; u16 {
+<a href=#121 id=121 data-nosnippet>121</a>    <span class="number">587
+<a href=#122 id=122 data-nosnippet>122</a></span>}
+<a href=#123 id=123 data-nosnippet>123</a>
+<a href=#124 id=124 data-nosnippet>124</a><span class="doccomment">/// Duracion por defecto del access token: 15 minutos.
+<a href=#125 id=125 data-nosnippet>125</a></span><span class="kw">fn </span>default_jwt_expiracion() -&gt; u64 {
+<a href=#126 id=126 data-nosnippet>126</a>    <span class="number">15
+<a href=#127 id=127 data-nosnippet>127</a></span>}
+<a href=#128 id=128 data-nosnippet>128</a>
+<a href=#129 id=129 data-nosnippet>129</a><span class="doccomment">/// Devuelve la direccion por defecto del servidor.
+<a href=#130 id=130 data-nosnippet>130</a>///
+<a href=#131 id=131 data-nosnippet>131</a>/// # Por que una funcion separada
+<a href=#132 id=132 data-nosnippet>132</a>/// `serde` requiere que el valor por defecto de un campo sea una funcion (no un literal).
+<a href=#133 id=133 data-nosnippet>133</a>/// `#[serde(default = "default_addr")]` llama a esta funcion si la variable de entorno
+<a href=#134 id=134 data-nosnippet>134</a>/// `SERVER_ADDR` no esta definida. Es una limitacion del sistema de macros de serde.
+<a href=#135 id=135 data-nosnippet>135</a>///
+<a href=#136 id=136 data-nosnippet>136</a>/// # Por que `.to_string()`
+<a href=#137 id=137 data-nosnippet>137</a>/// `"0.0.0.0:8080"` es un `&amp;str` (referencia a texto en el binario), pero necesitamos
+<a href=#138 id=138 data-nosnippet>138</a>/// un `String` (texto en el heap, owned). `.to_string()` crea esa copia en el heap.
+<a href=#139 id=139 data-nosnippet>139</a></span><span class="kw">fn </span>default_addr() -&gt; String {
+<a href=#140 id=140 data-nosnippet>140</a>    <span class="string">"localhost:8080"</span>.to_string()
+<a href=#141 id=141 data-nosnippet>141</a>}
+<a href=#142 id=142 data-nosnippet>142</a>
+<a href=#143 id=143 data-nosnippet>143</a><span class="doccomment">/// Devuelve la direccion de binding por defecto del servidor.
+<a href=#144 id=144 data-nosnippet>144</a>///
+<a href=#145 id=145 data-nosnippet>145</a>/// Misma logica que `default_addr`: serde necesita una funcion, no un literal.
+<a href=#146 id=146 data-nosnippet>146</a>/// `0.0.0.0` significa "escucha en todas las interfaces de red disponibles",
+<a href=#147 id=147 data-nosnippet>147</a>/// lo que es necesario dentro de un contenedor Docker para que el trafico
+<a href=#148 id=148 data-nosnippet>148</a>/// externo pueda llegar al proceso.
+<a href=#149 id=149 data-nosnippet>149</a></span><span class="kw">fn </span>port_addr() -&gt; String {
+<a href=#150 id=150 data-nosnippet>150</a>    <span class="string">"0.0.0.0:8080"</span>.to_string()
+<a href=#151 id=151 data-nosnippet>151</a>}
+<a href=#152 id=152 data-nosnippet>152</a>
+<a href=#153 id=153 data-nosnippet>153</a><span class="kw">impl </span>AppConfig {
+<a href=#154 id=154 data-nosnippet>154</a>    <span class="doccomment">/// Carga la configuracion desde variables de entorno.
+<a href=#155 id=155 data-nosnippet>155</a>    ///
+<a href=#156 id=156 data-nosnippet>156</a>    /// Primero carga el archivo `.env` si existe (via `dotenvy`), luego deserializa
+<a href=#157 id=157 data-nosnippet>157</a>    /// todas las variables de entorno en un `AppConfig` (via `envy`).
+<a href=#158 id=158 data-nosnippet>158</a>    ///
+<a href=#159 id=159 data-nosnippet>159</a>    /// # Por que `dotenvy::dotenv().ok()`
+<a href=#160 id=160 data-nosnippet>160</a>    /// `.ok()` convierte un `Result` en `Option`, descartando el error silenciosamente.
+<a href=#161 id=161 data-nosnippet>161</a>    /// Esto es intencionado: en produccion no habra archivo `.env` (las variables vienen
+<a href=#162 id=162 data-nosnippet>162</a>    /// del entorno del contenedor Docker), asi que no queremos que falle.
+<a href=#163 id=163 data-nosnippet>163</a>    ///
+<a href=#164 id=164 data-nosnippet>164</a>    /// # Por que `.expect()` y no `?`
+<a href=#165 id=165 data-nosnippet>165</a>    /// `expect()` hace panic con un mensaje claro si falla. Aqui es aceptable porque
+<a href=#166 id=166 data-nosnippet>166</a>    /// la configuracion es critica: sin ella, el servidor no puede arrancar. Es mejor
+<a href=#167 id=167 data-nosnippet>167</a>    /// fallar rapido con un mensaje claro que intentar continuar sin config.
+<a href=#168 id=168 data-nosnippet>168</a>    /// En handlers de API, usaremos `?` para propagar errores sin panic.
+<a href=#169 id=169 data-nosnippet>169</a>    </span><span class="kw">pub fn </span>from_env() -&gt; <span class="self">Self </span>{
+<a href=#170 id=170 data-nosnippet>170</a>        dotenvy::dotenv().ok();
+<a href=#171 id=171 data-nosnippet>171</a>        envy::from_env::&lt;<span class="self">Self</span>&gt;().expect(<span class="string">"Error cargando configuracion desde variables de entorno"</span>)
+<a href=#172 id=172 data-nosnippet>172</a>    }
+<a href=#173 id=173 data-nosnippet>173</a>}
 </code></pre></div></section></main></body></html>
