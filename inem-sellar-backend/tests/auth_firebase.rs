@@ -512,7 +512,7 @@ async fn firebase_login_email_no_verificado_devuelve_409() {
     assert_eq!(res.status_code, Some(StatusCode::CONFLICT));
 }
 
-/// `sign_in_provider` desconocido (apple.com) -> 400 con mensaje informativo.
+/// `sign_in_provider` desconocido (phone) -> 400 con mensaje informativo.
 #[tokio::test]
 async fn firebase_login_provider_desconocido_devuelve_400() {
     let (_server, jwks_url) = start_jwks_server().await;
@@ -521,7 +521,7 @@ async fn firebase_login_provider_desconocido_devuelve_400() {
         Arc::new(MockDatabase::new(DatabaseBackend::Postgres).into_connection());
 
     let service = build_app(db, jwks_url);
-    let token = forge_token(base_claims("apple.com", "firebase-apple-uid"), KID);
+    let token = forge_token(base_claims("phone", "firebase-phone-uid"), KID);
 
     let mut res = TestClient::post("http://127.0.0.1/api/v1/auth/firebase")
         .json(&json!({ "id_token": token }))
@@ -531,8 +531,8 @@ async fn firebase_login_provider_desconocido_devuelve_400() {
     assert_eq!(res.status_code, Some(StatusCode::BAD_REQUEST));
     let body = res.take_string().await.unwrap();
     assert!(
-        body.contains("apple.com"),
-        "esperaba mensaje con `apple.com`, recibido: {body}"
+        body.contains("phone"),
+        "esperaba mensaje con `phone`, recibido: {body}"
     );
 }
 
@@ -616,4 +616,126 @@ async fn firebase_login_anonimo_que_se_upgradea_no_duplica_usuario() {
     // se ha enlazado al MISMO usuario sin duplicar.
     assert_eq!(body["usuario"]["id"], user_id.to_string());
     assert_eq!(body["usuario"]["proveedor"], "google.com");
+}
+
+/// Provider `apple.com` sin usuario previo: crea usuario OAuth + identidad.
+///
+/// Apple siempre marca `email_verified=true` (incluso para emails relay
+/// `@privaterelay.appleid.com` cuando el usuario activa "Hide my email").
+/// Por eso aqui usamos un email relay y `email_verificado=true`: refleja
+/// el caso real mas comun en iOS.
+#[tokio::test]
+async fn firebase_login_apple_crea_usuario_si_no_existe() {
+    let (_server, jwks_url) = start_jwks_server().await;
+
+    let user_id = Uuid::new_v4();
+    let prov_id = Uuid::new_v4();
+    let token_id = Uuid::new_v4();
+    let sub = "firebase-apple-uid";
+    let email = "user@privaterelay.appleid.com";
+
+    let user = mock_usuario(user_id, Some(email), false);
+    let prov = mock_proveedor(prov_id, user_id, "apple.com", sub);
+    let tok = mock_refresh(token_id, user_id);
+
+    let db: Arc<DatabaseConnection> = Arc::new(
+        MockDatabase::new(DatabaseBackend::Postgres)
+            // 1. find prov (apple.com, sub) -> None
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            // 2. find prov by uid -> None
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            // 3. (no anonymous) -> buscar_por_email -> None
+            .append_query_results::<usuario::Model, _, _>(vec![empty()])
+            // 4. crear_usuario_oauth
+            .append_query_results(vec![vec![user.clone()]])
+            // 5. crear_proveedor_identidad
+            .append_query_results(vec![vec![prov.clone()]])
+            // 6. actualizar_ultimo_login: find_by_id
+            .append_query_results(vec![vec![user.clone()]])
+            // 7. actualizar_ultimo_login: update
+            .append_query_results(vec![vec![user.clone()]])
+            // 8. enriquecer_perfil_si_vacio: find_by_id
+            //    (no actualiza porque mock_usuario ya tiene nombre_visible)
+            .append_query_results(vec![vec![user.clone()]])
+            // 9. guardar_refresh_token
+            .append_query_results(vec![vec![tok.clone()]])
+            // 10. buscar_usuario_por_id (reload final)
+            .append_query_results(vec![vec![user.clone()]])
+            .into_connection(),
+    );
+
+    let service = build_app(db, jwks_url);
+    let token = forge_token(claims_con_email("apple.com", sub, email, true), KID);
+
+    let mut res = TestClient::post("http://127.0.0.1/api/v1/auth/firebase")
+        .json(&json!({ "id_token": token }))
+        .send(&service)
+        .await;
+
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let body: serde_json::Value = res.take_json().await.unwrap();
+    assert_eq!(body["usuario"]["proveedor"], "apple.com");
+    assert_eq!(body["usuario"]["anonimo"], false);
+    assert_eq!(body["usuario"]["email"], email);
+    assert_eq!(body["usuario"]["email_verificado"], true);
+    assert!(body["access_token"].is_string());
+    assert!(body["refresh_token"].is_string());
+}
+
+/// Auto-link: usuario legacy con `hash_contrasena` no nulo entra via Firebase
+/// Apple con `email_verified=true`, mismo email -> reutiliza el id_usuario.
+///
+/// Importante porque Apple SIEMPRE marca el email como verificado, asi que
+/// el camino de auto-link es el comun para usuarios que migran de
+/// password legacy a Apple.
+#[tokio::test]
+async fn firebase_login_apple_auto_link_a_usuario_legacy() {
+    let (_server, jwks_url) = start_jwks_server().await;
+
+    let user_id = Uuid::new_v4();
+    let prov_id = Uuid::new_v4();
+    let token_id = Uuid::new_v4();
+    let sub = "firebase-apple-uid-legacy";
+    let email = "frank@example.com";
+
+    let user_legacy = mock_usuario_legacy(user_id, email);
+    let prov = mock_proveedor(prov_id, user_id, "apple.com", sub);
+    let tok = mock_refresh(token_id, user_id);
+
+    let db: Arc<DatabaseConnection> = Arc::new(
+        MockDatabase::new(DatabaseBackend::Postgres)
+            // 1. find prov (apple.com, sub) -> None
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            // 2. find prov by uid -> None
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            // 3. buscar_por_email -> Some(usuario legacy)
+            .append_query_results(vec![vec![user_legacy.clone()]])
+            // 4. crear_proveedor_identidad para enlazar
+            .append_query_results(vec![vec![prov.clone()]])
+            // 5. actualizar_ultimo_login: find_by_id
+            .append_query_results(vec![vec![user_legacy.clone()]])
+            // 6. actualizar_ultimo_login: update
+            .append_query_results(vec![vec![user_legacy.clone()]])
+            // 7. enriquecer_perfil_si_vacio: find_by_id (ya tiene nombre, no actualiza)
+            .append_query_results(vec![vec![user_legacy.clone()]])
+            // 8. guardar_refresh_token
+            .append_query_results(vec![vec![tok.clone()]])
+            // 9. reload final
+            .append_query_results(vec![vec![user_legacy.clone()]])
+            .into_connection(),
+    );
+
+    let service = build_app(db, jwks_url);
+    let token = forge_token(claims_con_email("apple.com", sub, email, true), KID);
+
+    let mut res = TestClient::post("http://127.0.0.1/api/v1/auth/firebase")
+        .json(&json!({ "id_token": token }))
+        .send(&service)
+        .await;
+
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let body: serde_json::Value = res.take_json().await.unwrap();
+    assert_eq!(body["usuario"]["id"], user_id.to_string());
+    assert_eq!(body["usuario"]["email"], email);
+    assert_eq!(body["usuario"]["proveedor"], "apple.com");
 }
