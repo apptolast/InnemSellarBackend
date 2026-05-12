@@ -64,6 +64,13 @@ const JWKS_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 pub enum SignInProvider {
     /// Firebase OAuth con Google. `sign_in_provider == "google.com"`.
     GoogleCom,
+    /// Firebase OAuth con Apple. `sign_in_provider == "apple.com"`.
+    ///
+    /// En iOS via AuthenticationServices nativo (Sign in with Apple del
+    /// sistema), en Android via Firebase OAuth web (Chrome Custom Tab
+    /// abriendo `appleid.apple.com`). En ambos casos Firebase emite el
+    /// mismo ID Token RS256 que validamos contra el JWKS de Google.
+    AppleCom,
     /// Firebase Email/Password. `sign_in_provider == "password"`.
     Password,
     /// Firebase Anonymous Auth. `sign_in_provider == "anonymous"`.
@@ -79,6 +86,7 @@ impl SignInProvider {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::GoogleCom => "google.com",
+            Self::AppleCom => "apple.com",
             Self::Password => "password",
             Self::Anonymous => "anonymous",
         }
@@ -94,11 +102,12 @@ impl TryFrom<&str> for SignInProvider {
     /// # Por que `Err(String)` y no un enum de error
     /// El caller (handler `login_firebase`) usa el literal desconocido
     /// para construir un mensaje 400 informativo del estilo
-    /// `"proveedor `apple.com` no soportado todavia"`. Devolver el string
+    /// `"proveedor `phone` no soportado todavia"`. Devolver el string
     /// original ahorra una capa de mapeo y mantiene el caller delgado.
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         match value {
             "google.com" => Ok(Self::GoogleCom),
+            "apple.com" => Ok(Self::AppleCom),
             "password" => Ok(Self::Password),
             "anonymous" => Ok(Self::Anonymous),
             other => Err(other.to_string()),
@@ -489,11 +498,16 @@ mod tests {
     }
 
     #[test]
-    fn provider_desconocido_devuelve_literal_en_err() {
+    fn provider_apple_com_se_parsea() {
         assert_eq!(
             SignInProvider::try_from("apple.com"),
-            Err("apple.com".to_string())
+            Ok(SignInProvider::AppleCom)
         );
+    }
+
+    #[test]
+    fn provider_desconocido_devuelve_literal_en_err() {
+        assert_eq!(SignInProvider::try_from("phone"), Err("phone".to_string()));
         assert_eq!(SignInProvider::try_from(""), Err(String::new()));
     }
 
@@ -501,6 +515,7 @@ mod tests {
     fn provider_as_str_es_consistente_con_try_from() {
         for p in [
             SignInProvider::GoogleCom,
+            SignInProvider::AppleCom,
             SignInProvider::Password,
             SignInProvider::Anonymous,
         ] {
