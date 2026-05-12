@@ -77,8 +77,11 @@ pub struct AuthResponse {
 /// Datos publicos del usuario (sin hash_contrasena).
 ///
 /// # Por que campos nullable
-/// Esta struct la consumen los 3 sub-flujos del handshake Firebase:
+/// Esta struct la consumen los 4 sub-flujos del handshake Firebase:
 ///   - `google.com`: tiene email, nombre y avatar de Google.
+///   - `apple.com`: tiene email (incluso si es relay
+///     `@privaterelay.appleid.com` por "Hide my email"); `name`/`picture`
+///     solo en el PRIMER login (Apple solo expone esos campos una vez).
 ///   - `password` (Firebase Email/Password): tiene email; name/picture
 ///     vienen del Firebase profile si el cliente los puso, opcionales.
 ///   - `anonymous`: no tiene email ni nombre.
@@ -97,8 +100,9 @@ pub struct UsuarioResponse {
     /// perfil que el propio usuario subio. `None` si no hay foto.
     pub url_avatar: Option<String>,
     /// `sign_in_provider` literal de Firebase para ESTE login:
-    /// `"google.com"` | `"password"` | `"anonymous"`. El cliente lo usa
-    /// para decidir que pantalla de re-login mostrar si hace falta.
+    /// `"google.com"` | `"apple.com"` | `"password"` | `"anonymous"`. El
+    /// cliente lo usa para decidir que pantalla de re-login mostrar si
+    /// hace falta.
     pub proveedor: Option<String>,
     /// `true` si el usuario es anonimo. El cliente lo usa para mostrar el
     /// flujo "completar registro".
@@ -302,19 +306,20 @@ pub async fn logout(
 
 /// POST /api/v1/auth/firebase — Handshake unico con Firebase ID Token.
 ///
-/// La app cliente delega TODO el login en FirebaseAuth (Google,
+/// La app cliente delega TODO el login en FirebaseAuth (Google, Apple,
 /// email/password, anonimo) y entrega aqui el ID Token JWT firmado por
 /// Google con RS256. El backend lo verifica contra los JWKS de Google,
 /// tipa el `sign_in_provider` con la whitelist `SignInProvider`, y
 /// resuelve un usuario segun el caso:
 ///
-///   - **`google.com` / `password`**: si la identidad ya existe (mismo
-///     `firebase_uid` y mismo provider) la reusa y refresca su
-///     snapshot JSONB. Si no, intenta auto-link por email cuando
+///   - **`google.com` / `apple.com` / `password`**: si la identidad ya
+///     existe (mismo `firebase_uid` y mismo provider) la reusa y refresca
+///     su snapshot JSONB. Si no, intenta auto-link por email cuando
 ///     `email_verified=true` (asi un usuario legacy con `hash_contrasena`
-///     se enlaza automaticamente). Si el email coincide pero NO esta
-///     verificado, devuelve 409 (anti-takeover). Si nada coincide, crea
-///     un usuario OAuth nuevo.
+///     se enlaza automaticamente; Apple siempre marca el email como
+///     verificado, incluso para relays `@privaterelay.appleid.com`). Si
+///     el email coincide pero NO esta verificado, devuelve 409
+///     (anti-takeover). Si nada coincide, crea un usuario OAuth nuevo.
 ///   - **`anonymous`**: crea un usuario sin email/hash y guarda el
 ///     `firebase_uid` como `identificador_proveedor`. El JWT propio
 ///     emitido lleva `anonimo=true` para que el cliente sepa que falta
@@ -322,12 +327,12 @@ pub async fn logout(
 ///   - **Lookup defensivo (`linkWithCredential` en cliente)**: si el
 ///     `firebase_uid` ya existe en OTRO provider, reusa el mismo
 ///     `id_usuario` y solo anade la nueva fila de identidad. Evita
-///     duplicar usuarios cuando un anonimo se actualiza a Google/password
-///     conservando su uid.
+///     duplicar usuarios cuando un anonimo se actualiza a Google/Apple/
+///     password conservando su uid.
 ///
 /// # Codigos de error
 /// - 400: `id_token` vacio o `sign_in_provider` no soportado todavia
-///   (Apple, phone, etc.).
+///   (phone, microsoft.com, github.com, etc.).
 /// - 401: token invalido (firma, expirado, audience, issuer, kid desconocido).
 /// - 409: account linking bloqueado por `email_verified=false`.
 /// - 500: fallo al descargar JWKS de Google o error de BD.
@@ -363,7 +368,7 @@ pub async fn login_firebase(
     // ── 3. Verificar el ID Token de Firebase (criptografia + claims) ──
     let claims = firebase.verify(&body.id_token).await?;
 
-    // ── 4. Tipar el provider via whitelist (rechaza Apple/phone/etc. con 400) ──
+    // ── 4. Tipar el provider via whitelist (rechaza phone/microsoft/etc. con 400) ──
     let provider = claims.provider().map_err(|p| {
         tracing::warn!(provider = %p, "sign_in_provider de Firebase no soportado todavia");
         AppError::BadRequest(format!("proveedor `{p}` no soportado todavia"))
@@ -422,9 +427,12 @@ pub async fn login_firebase(
 ///   2. `firebase_uid` existe en OTRO provider (`linkWithCredential`) -> reusa
 ///      `id_usuario` y solo anade la nueva fila de identidad.
 ///   3. Anonymous nuevo -> crea usuario sin email/hash + identidad.
-///   4. password/google.com con email coincidente y verificado -> auto-link.
+///   4. password/google.com/apple.com con email coincidente y verificado ->
+///      auto-link. Apple siempre marca `email_verified=true` (incluso para
+///      relays `@privaterelay.appleid.com`), asi que cae aqui sin friccion.
 ///      Si el email NO esta verificado -> 409 (anti-takeover).
-///   5. password/google.com sin match -> crea usuario OAuth nuevo + identidad.
+///   5. password/google.com/apple.com sin match -> crea usuario OAuth nuevo
+///      + identidad.
 async fn upsert_usuario_firebase(
     auth_repo: &SeaAuthRepo,
     proveedor_repo: &SeaProveedorAutenticacionRepo,
@@ -472,9 +480,11 @@ async fn upsert_usuario_firebase(
         return Ok(nuevo);
     }
 
-    // 4. password/google.com con email coincidente -> auto-link si email_verified=true.
-    //    Asi un usuario legacy con `hash_contrasena` se enlaza automaticamente
-    //    a su nueva identidad Firebase password sin intervencion manual.
+    // 4. password/google.com/apple.com con email coincidente -> auto-link si
+    //    email_verified=true. Asi un usuario legacy con `hash_contrasena` se
+    //    enlaza automaticamente a su nueva identidad Firebase sin intervencion
+    //    manual. Apple siempre propaga email_verified=true (incluso emails
+    //    relay), por lo que tambien cae aqui sin friccion.
     if let Some(email) = claims.email.as_deref()
         && let Some(usuario_existente) = auth_repo.buscar_por_email(email).await?
     {
@@ -498,7 +508,7 @@ async fn upsert_usuario_firebase(
         return Ok(usuario_existente);
     }
 
-    // 5. password/google.com sin match previo -> usuario OAuth nuevo + identidad.
+    // 5. password/google.com/apple.com sin match previo -> usuario OAuth nuevo + identidad.
     let nuevo = auth_repo
         .crear_usuario_oauth(
             claims.email.as_deref(),
