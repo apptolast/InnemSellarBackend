@@ -355,6 +355,7 @@ mod tests {
             report_email_from: "admin@apptolast.com".into(),
             report_email_to: "admin@apptolast.com".into(),
             admin_email_allowlist: "".into(),
+            admin_web_origins: crate::middleware::DEFAULT_ADMIN_WEB_ORIGINS.into(),
         };
 
         let notifier = EmailNotifier::from_config(&cfg).expect("no debe fallar");

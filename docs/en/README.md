@@ -159,6 +159,7 @@ inem-sellar-backend/src/
 | `JWT_SECRET`              | Secret key for signing own JWT tokens        | Random 48+ byte string           |
 | `JWT_EXPIRACION_MINUTOS`  | Access token duration in minutes             | `15`                             |
 | `FIREBASE_PROJECT_ID`     | Firebase project ID (no default; panics)     | `inemsellar-app`                 |
+| `ADMIN_WEB_ORIGINS`       | Web origins allowed by CORS                  | `https://inemadmin.apptolast.com,http://localhost:8081` |
 | `SERVER_ADDR`             | Public address (for logs)                    | `0.0.0.0:8080`                   |
 | `PORT_ADDR`               | Socket binding address                       | `0.0.0.0:8080`                   |
 | `RUST_LOG`                | Log level (trace/debug/info/warn/error)      | `info`                           |

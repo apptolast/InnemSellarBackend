@@ -30,7 +30,7 @@ use inem_sellar_backend::repositories::{
     SeaUsuarioRepo, SeaVotoRepo,
 };
 use inem_sellar_backend::services::{AuthService, EmailNotifier, FirebaseVerifier};
-use inem_sellar_backend::{db, routes};
+use inem_sellar_backend::{db, middleware, routes};
 
 /// Handler basico que responde con "Hello World".
 ///
@@ -218,6 +218,8 @@ async fn main() {
         .unshift(doc.into_router("/api-doc/openapi.json"))
         .unshift(SwaggerUi::new("/api-doc/openapi.json").into_router("/swagger-ui"));
 
+    let service = Service::new(router).hoop(middleware::cors_handler(&cfg.admin_web_origins));
+
     // `TcpListener` abre el socket TCP en el puerto 8080 en todas las interfaces
     // de red (0.0.0.0). `.bind().await` completa el binding de forma asincrona.
     // En produccion, Nginx actua como proxy inverso delante de este puerto.
@@ -234,5 +236,5 @@ async fn main() {
     // recibe una senal de terminacion (SIGTERM/SIGINT). Es el equivalente al
     // `runApp(MyApp())` en Flutter: el punto sin retorno que cede el control
     // al framework.
-    Server::new(acceptor).serve(router).await;
+    Server::new(acceptor).serve(service).await;
 }
