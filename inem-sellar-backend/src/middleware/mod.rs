@@ -1,3 +1,3 @@
 pub mod auth;
 
-pub use auth::auth_middleware;
+pub use auth::{admin_middleware, auth_middleware, es_admin};

@@ -7,7 +7,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::models::enums::OrigenContenido;
+use crate::models::enums::{EstadoModeracion, OrigenContenido};
 use crate::models::{curso, curso_provincia};
 
 pub struct CrearCursoDto {
@@ -40,6 +40,10 @@ pub struct ActualizarCursoDto {
     pub email_contacto: Option<String>,
     /// Si se envia, reemplaza las provincias asociadas.
     pub provincias: Option<Vec<i32>>,
+    /// Campo admin-only: permite ocultar/reactivar un curso.
+    pub activo: Option<bool>,
+    /// Campo admin-only: cambia el estado de moderacion.
+    pub estado_moderacion: Option<EstadoModeracion>,
 }
 
 pub trait CursoRepo: Send + Sync {
@@ -209,6 +213,12 @@ impl CursoRepo for SeaCursoRepo {
         }
         if datos.email_contacto.is_some() {
             active.email_contacto = Set(datos.email_contacto);
+        }
+        if datos.activo.is_some() {
+            active.activo = Set(datos.activo);
+        }
+        if datos.estado_moderacion.is_some() {
+            active.estado_moderacion = Set(datos.estado_moderacion);
         }
 
         let resultado = active.update(&*self.db).await.map_err(AppError::from_db)?;

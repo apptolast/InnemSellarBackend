@@ -223,7 +223,16 @@ fn mock_refresh(id: Uuid, id_usuario: Uuid) -> token_refresco::Model {
 // ─── Builder del Service Salvo con todas las inyecciones ─────────────────
 
 fn build_app(db: Arc<DatabaseConnection>, jwks_url: String) -> Service {
-    let auth_service = AuthService::new(JWT_SECRET.to_string(), 15);
+    build_app_with_admin_allowlist(db, jwks_url, "")
+}
+
+fn build_app_with_admin_allowlist(
+    db: Arc<DatabaseConnection>,
+    jwks_url: String,
+    admin_allowlist: &str,
+) -> Service {
+    let auth_service =
+        AuthService::new_with_admin_email_allowlist(JWT_SECRET.to_string(), 15, admin_allowlist);
     let firebase = FirebaseVerifier::new_with_url(PROJECT_ID.to_string(), jwks_url);
     let auth_repo = SeaAuthRepo::new(Arc::clone(&db));
     let proveedor_repo = SeaProveedorAutenticacionRepo::new(db);
@@ -356,6 +365,55 @@ async fn firebase_login_password_crea_usuario_si_no_existe() {
     assert_eq!(body["usuario"]["anonimo"], false);
     assert_eq!(body["usuario"]["email"], email);
     assert_eq!(body["usuario"]["email_verificado"], true);
+}
+
+/// Email verificado dentro de ADMIN_EMAIL_ALLOWLIST -> response opcional
+/// `usuario.admin=true` y JWT propio con claim `admin=true`.
+#[tokio::test]
+async fn firebase_login_password_allowlist_emite_admin_true() {
+    let (_server, jwks_url) = start_jwks_server().await;
+
+    let user_id = Uuid::new_v4();
+    let prov_id = Uuid::new_v4();
+    let token_id = Uuid::new_v4();
+    let sub = "firebase-admin-uid";
+    let email = "admin@example.com";
+
+    let user = mock_usuario(user_id, Some(email), false);
+    let prov = mock_proveedor(prov_id, user_id, "password", sub);
+    let tok = mock_refresh(token_id, user_id);
+
+    let db: Arc<DatabaseConnection> = Arc::new(
+        MockDatabase::new(DatabaseBackend::Postgres)
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            .append_query_results::<usuario::Model, _, _>(vec![empty()])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![prov.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![tok.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .into_connection(),
+    );
+
+    let service = build_app_with_admin_allowlist(db, jwks_url, "admin@example.com");
+    let token = forge_token(claims_con_email("password", sub, email, true), KID);
+
+    let mut res = TestClient::post("http://127.0.0.1/api/v1/auth/firebase")
+        .json(&json!({ "id_token": token }))
+        .send(&service)
+        .await;
+
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let body: serde_json::Value = res.take_json().await.unwrap();
+    assert_eq!(body["usuario"]["admin"], true);
+
+    let claims = AuthService::new(JWT_SECRET.to_string(), 15)
+        .verificar_access_token(body["access_token"].as_str().unwrap())
+        .unwrap();
+    assert!(claims.admin);
 }
 
 /// Provider `google.com` con name + picture: crea usuario y enriquece perfil.

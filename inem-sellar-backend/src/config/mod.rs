@@ -108,6 +108,15 @@ pub struct AppConfig {
     /// Se lee de `REPORT_EMAIL_TO`.
     #[serde(default)]
     pub report_email_to: String,
+
+    /// Emails administradores separados por coma.
+    ///
+    /// Se lee de `ADMIN_EMAIL_ALLOWLIST`. No es un rol en BD ni un custom
+    /// claim de Firebase: el backend compara el email verificado del ID Token
+    /// contra esta lista y emite su JWT propio con `admin=true` solo si encaja.
+    /// Default vacio: nadie es admin.
+    #[serde(default)]
+    pub admin_email_allowlist: String,
 }
 
 /// Puerto SMTP por defecto: `587` (submission con STARTTLS).

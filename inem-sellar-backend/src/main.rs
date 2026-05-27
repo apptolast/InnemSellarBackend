@@ -98,7 +98,11 @@ async fn main() {
     let db = std::sync::Arc::new(db::init_db(&cfg).await);
 
     // Creamos servicios y repositorios, inyectando la conexion.
-    let auth_service = AuthService::new(cfg.jwt_secret.clone(), cfg.jwt_expiracion_minutos);
+    let auth_service = AuthService::new_with_admin_email_allowlist(
+        cfg.jwt_secret.clone(),
+        cfg.jwt_expiracion_minutos,
+        cfg.admin_email_allowlist.clone(),
+    );
     // Verificador de Firebase ID Tokens. Se construye con el `project_id`
     // que valida en cada token entrante. El cache de JWKS de Google se
     // poblara perezosamente en el primer login Firebase.
@@ -178,7 +182,11 @@ async fn main() {
                      **Autenticacion**: completa el login con Firebase en el cliente y \
                      llama a `POST /api/v1/auth/firebase` con el ID Token. La respuesta \
                      incluye un `access_token` JWT que puedes pulsar en el boton Authorize \
-                     (arriba a la derecha) para probar los endpoints protegidos.",
+                     (arriba a la derecha) para probar los endpoints protegidos.\n\n\
+                     **Admin**: si el email verificado del Firebase ID Token pertenece a \
+                     `ADMIN_EMAIL_ALLOWLIST`, el backend emite su JWT propio con \
+                     `admin=true`. Las rutas admin devuelven 403 para cualquier otro \
+                     usuario autenticado.",
                 )
                 .contact(
                     salvo::oapi::Contact::new()

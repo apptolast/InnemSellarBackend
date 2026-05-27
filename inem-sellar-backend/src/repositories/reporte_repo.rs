@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
+    Set, TransactionTrait,
+};
 use uuid::Uuid;
 
 use crate::errors::AppError;
-use crate::models::enums::{EstadoReporte, MotivoReporte, TipoContenido};
-use crate::models::reporte;
+use crate::models::enums::{EstadoModeracion, EstadoReporte, MotivoReporte, TipoContenido};
+use crate::models::{consejo, curso, oferta_empleo, reporte};
 
 pub struct CrearReporteDto {
     pub tipo_contenido: TipoContenido,
@@ -45,6 +48,7 @@ pub trait ReporteRepo: Send + Sync {
         id: Uuid,
         id_procesador: Uuid,
         aceptar: bool,
+        ocultar_contenido: bool,
     ) -> impl std::future::Future<Output = Result<reporte::Model, AppError>> + Send;
 }
 
@@ -124,12 +128,18 @@ impl ReporteRepo for SeaReporteRepo {
         id: Uuid,
         id_procesador: Uuid,
         aceptar: bool,
+        ocultar_contenido: bool,
     ) -> Result<reporte::Model, AppError> {
+        let txn = self.db.begin().await.map_err(AppError::from_db)?;
         let reporte = reporte::Entity::find_by_id(id)
-            .one(&*self.db)
+            .one(&txn)
             .await
             .map_err(AppError::from_db)?
             .ok_or_else(|| AppError::NotFound(format!("Reporte con id {id}")))?;
+
+        if aceptar && ocultar_contenido {
+            ocultar_contenido_reportado(&txn, &reporte).await?;
+        }
 
         let mut active: reporte::ActiveModel = reporte.into();
         active.estado = Set(Some(if aceptar {
@@ -140,6 +150,153 @@ impl ReporteRepo for SeaReporteRepo {
         active.id_procesador = Set(Some(id_procesador));
         active.procesado_en = Set(Some(Utc::now().fixed_offset()));
 
-        active.update(&*self.db).await.map_err(AppError::from_db)
+        let reporte_actualizado = active.update(&txn).await.map_err(AppError::from_db)?;
+        txn.commit().await.map_err(AppError::from_db)?;
+
+        Ok(reporte_actualizado)
+    }
+}
+
+async fn ocultar_contenido_reportado<C>(db: &C, reporte: &reporte::Model) -> Result<(), AppError>
+where
+    C: ConnectionTrait,
+{
+    let tipo = reporte
+        .tipo_contenido
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Reporte sin tipo_contenido".into()))?;
+    let id_contenido = reporte
+        .id_contenido
+        .ok_or_else(|| AppError::Internal("Reporte sin id_contenido".into()))?;
+
+    match tipo {
+        TipoContenido::Oferta => {
+            let contenido = oferta_empleo::Entity::find_by_id(id_contenido)
+                .one(db)
+                .await
+                .map_err(AppError::from_db)?
+                .ok_or_else(|| AppError::NotFound(format!("Oferta con id {id_contenido}")))?;
+            let mut active: oferta_empleo::ActiveModel = contenido.into();
+            active.activo = Set(Some(false));
+            active.estado_moderacion = Set(Some(EstadoModeracion::Rechazado));
+            active.update(db).await.map_err(AppError::from_db)?;
+        }
+        TipoContenido::Consejo => {
+            let contenido = consejo::Entity::find_by_id(id_contenido)
+                .one(db)
+                .await
+                .map_err(AppError::from_db)?
+                .ok_or_else(|| AppError::NotFound(format!("Consejo con id {id_contenido}")))?;
+            let mut active: consejo::ActiveModel = contenido.into();
+            active.activo = Set(Some(false));
+            active.estado_moderacion = Set(Some(EstadoModeracion::Rechazado));
+            active.update(db).await.map_err(AppError::from_db)?;
+        }
+        TipoContenido::Curso => {
+            let contenido = curso::Entity::find_by_id(id_contenido)
+                .one(db)
+                .await
+                .map_err(AppError::from_db)?
+                .ok_or_else(|| AppError::NotFound(format!("Curso con id {id_contenido}")))?;
+            let mut active: curso::ActiveModel = contenido.into();
+            active.activo = Set(Some(false));
+            active.estado_moderacion = Set(Some(EstadoModeracion::Rechazado));
+            active.update(db).await.map_err(AppError::from_db)?;
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use chrono::Utc;
+    use sea_orm::{DatabaseBackend, MockDatabase};
+
+    use super::*;
+
+    fn reporte_fake(id: Uuid, id_contenido: Uuid, id_reportero: Uuid) -> reporte::Model {
+        let now = Some(Utc::now().fixed_offset());
+        reporte::Model {
+            id,
+            tipo_contenido: Some(TipoContenido::Oferta),
+            id_contenido: Some(id_contenido),
+            id_reportero,
+            motivo: Some(MotivoReporte::Spam),
+            detalle_motivo: None,
+            estado: Some(EstadoReporte::Pendiente),
+            id_procesador: None,
+            procesado_en: None,
+            creado_en: now,
+            actualizado_en: now,
+        }
+    }
+
+    fn oferta_fake(id: Uuid, id_autor: Uuid) -> oferta_empleo::Model {
+        let now = Some(Utc::now().fixed_offset());
+        oferta_empleo::Model {
+            id,
+            id_autor,
+            titulo_puesto: Some("Oferta reportada".into()),
+            empresa: None,
+            ubicacion: None,
+            descripcion: None,
+            telefono_contacto: None,
+            email_contacto: None,
+            web_contacto: None,
+            activo: Some(true),
+            caduca_en: None,
+            cantidad_upvotes: Some(0),
+            cantidad_downvotes: Some(0),
+            cantidad_reportes: Some(1),
+            estado_moderacion: Some(EstadoModeracion::Aprobado),
+            creado_en: now,
+            actualizado_en: now,
+        }
+    }
+
+    #[tokio::test]
+    async fn procesar_reporte_aceptar_ocultar_actualiza_contenido_y_reporte() {
+        let id_reporte = Uuid::new_v4();
+        let id_contenido = Uuid::new_v4();
+        let id_reportero = Uuid::new_v4();
+        let id_procesador = Uuid::new_v4();
+        let reporte = reporte_fake(id_reporte, id_contenido, id_reportero);
+        let oferta = oferta_fake(id_contenido, id_reportero);
+        let mut oferta_oculta = oferta.clone();
+        oferta_oculta.activo = Some(false);
+        oferta_oculta.estado_moderacion = Some(EstadoModeracion::Rechazado);
+        let mut reporte_procesado = reporte.clone();
+        reporte_procesado.estado = Some(EstadoReporte::Aceptado);
+        reporte_procesado.id_procesador = Some(id_procesador);
+        reporte_procesado.procesado_en = Some(Utc::now().fixed_offset());
+
+        let db = Arc::new(
+            MockDatabase::new(DatabaseBackend::Postgres)
+                .append_query_results(vec![vec![reporte.clone()]])
+                .append_query_results(vec![vec![oferta.clone()]])
+                .append_query_results(vec![vec![oferta_oculta]])
+                .append_query_results(vec![vec![reporte_procesado]])
+                .into_connection(),
+        );
+        let repo = SeaReporteRepo::new(Arc::clone(&db));
+
+        let resultado = repo
+            .procesar_reporte(id_reporte, id_procesador, true, true)
+            .await
+            .expect("debe procesar y ocultar");
+        assert_eq!(resultado.estado, Some(EstadoReporte::Aceptado));
+        drop(repo);
+
+        let logs = Arc::try_unwrap(db).ok().unwrap().into_transaction_log();
+        let logs = format!("{logs:?}");
+        assert!(logs.contains(r#"UPDATE \"ofertas_empleo\" SET \"activo\" = $1"#));
+        assert!(logs.contains(r#"\"estado_moderacion\" = CAST($2 AS \"estado_moderacion\")"#));
+        assert!(
+            logs.contains(r#"UPDATE \"reportes\" SET \"estado\" = CAST($1 AS \"estado_reporte\")"#)
+        );
+        assert!(logs.contains(r#"\"id_procesador\" = $2, \"procesado_en\" = $3"#));
     }
 }

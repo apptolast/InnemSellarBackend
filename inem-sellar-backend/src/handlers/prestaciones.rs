@@ -89,7 +89,7 @@ pub async fn obtener_prestacion(
 
 /// POST /api/v1/prestaciones — Crear una nueva prestacion (admin).
 ///
-/// Requiere autenticacion JWT. En el futuro se verificara rol de admin.
+/// Requiere autenticacion JWT con `admin=true`.
 #[endpoint(tags("Prestaciones"), security(("bearer_auth" = [])))]
 pub async fn crear_prestacion(
     body: JsonBody<CrearPrestacionRequest>,
@@ -118,7 +118,7 @@ pub async fn crear_prestacion(
 
 /// PUT /api/v1/prestaciones/{id} — Actualizar una prestacion (admin).
 ///
-/// Requiere autenticacion JWT. Solo se actualizan los campos enviados.
+/// Requiere autenticacion JWT con `admin=true`. Solo se actualizan los campos enviados.
 #[endpoint(tags("Prestaciones"), security(("bearer_auth" = [])))]
 pub async fn actualizar_prestacion(
     id: PathParam<i32>,
@@ -149,7 +149,7 @@ pub async fn actualizar_prestacion(
 
 /// DELETE /api/v1/prestaciones/{id} — Eliminar una prestacion (admin).
 ///
-/// Elimina fisicamente la prestacion de la BD.
+/// Requiere autenticacion JWT con `admin=true`. Elimina fisicamente la prestacion de la BD.
 #[endpoint(tags("Prestaciones"), security(("bearer_auth" = [])))]
 pub async fn eliminar_prestacion(
     id: PathParam<i32>,

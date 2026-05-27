@@ -110,6 +110,12 @@ pub struct UsuarioResponse {
     /// `true` si el proveedor (Google, etc.) verifico el email. `None` si no
     /// aplica (anonimos, email/password sin verificacion).
     pub email_verificado: Option<bool>,
+    /// `true` si el backend emitio el JWT propio con `admin=true`.
+    ///
+    /// Campo opcional para mantener compatibilidad con clientes moviles que
+    /// ya consumen `AuthResponse`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin: Option<bool>,
 }
 
 /// Respuesta de refrescar — solo tokens nuevos.
@@ -141,6 +147,7 @@ fn construir_usuario_response(
     proveedor: &str,
     anonimo: bool,
     email_verificado: Option<bool>,
+    admin: bool,
 ) -> UsuarioResponse {
     UsuarioResponse {
         id: user.id,
@@ -150,6 +157,7 @@ fn construir_usuario_response(
         proveedor: Some(proveedor.to_string()),
         anonimo,
         email_verificado,
+        admin: admin.then_some(true),
     }
 }
 
@@ -242,10 +250,22 @@ pub async fn refrescar(
     // una identidad `proveedor='anonymous'`. Asi un anonimo que refresca
     // sigue siendo anonimo en el nuevo access_token.
     let es_anonimo = proveedor_repo.es_anonimo(token_db.id_usuario).await?;
+    let usuario = auth_repo
+        .buscar_usuario_por_id(token_db.id_usuario)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
+    let admin = if let Some(email) = usuario.email.as_deref() {
+        auth_service.email_en_admin_allowlist(email)
+            && proveedor_repo
+                .tiene_email_verificado(token_db.id_usuario, email)
+                .await?
+    } else {
+        false
+    };
 
     // Generar nuevo par de tokens manteniendo el flag.
     let access_token =
-        auth_service.generar_access_token_con_flag(token_db.id_usuario, es_anonimo)?;
+        auth_service.generar_access_token_con_flags(token_db.id_usuario, es_anonimo, admin)?;
     let new_refresh_raw = auth_service.generar_refresh_token();
     let new_refresh_hash = auth_service.hashear_refresh_token(&new_refresh_raw);
 
@@ -374,6 +394,8 @@ pub async fn login_firebase(
         AppError::BadRequest(format!("proveedor `{p}` no soportado todavia"))
     })?;
     let anonimo = matches!(provider, SignInProvider::Anonymous);
+    let admin =
+        auth_service.es_email_admin_verificado(claims.email.as_deref(), claims.email_verified);
 
     // ── 5. Resolver el usuario (upsert + account-linking + lookup defensivo) ──
     let usuario = upsert_usuario_firebase(&auth_repo, &proveedor_repo, &claims, provider).await?;
@@ -391,7 +413,7 @@ pub async fn login_firebase(
     }
 
     // ── 7. Emitir tokens propios (HS256, flag anonimo derivado del provider) ──
-    let access_token = auth_service.generar_access_token_con_flag(usuario.id, anonimo)?;
+    let access_token = auth_service.generar_access_token_con_flags(usuario.id, anonimo, admin)?;
     let refresh_raw = auth_service.generar_refresh_token();
     let refresh_hash = auth_service.hashear_refresh_token(&refresh_raw);
     let expira = (Utc::now() + Duration::days(30)).fixed_offset();
@@ -414,6 +436,7 @@ pub async fn login_firebase(
             provider.as_str(),
             anonimo,
             claims.email_verified,
+            admin,
         ),
     }))
 }

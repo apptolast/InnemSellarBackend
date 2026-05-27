@@ -249,7 +249,7 @@ pub async fn obtener_oficina_por_provincia(
 
 /// POST /api/v1/comunidades — Crear una nueva comunidad autonoma (admin).
 ///
-/// Requiere autenticacion JWT. Devuelve el registro creado con su ID asignado.
+/// Requiere autenticacion JWT con `admin=true`. Devuelve el registro creado con su ID asignado.
 ///
 /// # Por que `JsonBody<CrearComunidadRequest>`
 /// `JsonBody<T>` es el extractor de Salvo OAPI para el body JSON.
@@ -288,7 +288,7 @@ pub async fn crear_comunidad(
 
 /// PUT /api/v1/comunidades/{id} — Actualizar una comunidad autonoma (admin).
 ///
-/// Requiere autenticacion JWT. Solo actualiza los campos enviados en el body.
+/// Requiere autenticacion JWT con `admin=true`. Solo actualiza los campos enviados en el body.
 /// Los campos ausentes o `null` no se modifican en base de datos.
 #[endpoint(tags("Geografia"), security(("bearer_auth" = [])))]
 pub async fn actualizar_comunidad(
@@ -319,7 +319,7 @@ pub async fn actualizar_comunidad(
 
 /// DELETE /api/v1/comunidades/{id} — Eliminar una comunidad autonoma (admin).
 ///
-/// Requiere autenticacion JWT. Elimina fisicamente el registro.
+/// Requiere autenticacion JWT con `admin=true`. Elimina fisicamente el registro.
 /// Devuelve 404 si no existe, 200 con mensaje si se elimino correctamente.
 ///
 /// # Atencion: cascada en base de datos
@@ -351,7 +351,7 @@ pub async fn eliminar_comunidad(
 
 /// POST /api/v1/provincias — Crear una nueva provincia (admin).
 ///
-/// Requiere autenticacion JWT. El `id` (codigo INE) debe enviarse en el body.
+/// Requiere autenticacion JWT con `admin=true`. El `id` (codigo INE) debe enviarse en el body.
 /// Devuelve 409 si ya existe una provincia con ese codigo INE.
 #[endpoint(tags("Geografia"), security(("bearer_auth" = [])))]
 pub async fn crear_provincia(
@@ -381,7 +381,7 @@ pub async fn crear_provincia(
 
 /// PUT /api/v1/provincias/{id} — Actualizar una provincia (admin).
 ///
-/// Requiere autenticacion JWT. El `id` es el codigo INE (path param).
+/// Requiere autenticacion JWT con `admin=true`. El `id` es el codigo INE (path param).
 /// Solo actualiza los campos enviados en el body.
 #[endpoint(tags("Geografia"), security(("bearer_auth" = [])))]
 pub async fn actualizar_provincia(
@@ -411,7 +411,7 @@ pub async fn actualizar_provincia(
 
 /// DELETE /api/v1/provincias/{id} — Eliminar una provincia (admin).
 ///
-/// Requiere autenticacion JWT. Elimina fisicamente el registro.
+/// Requiere autenticacion JWT con `admin=true`. Elimina fisicamente el registro.
 /// Devuelve 404 si no existe la provincia con ese codigo INE.
 #[endpoint(tags("Geografia"), security(("bearer_auth" = [])))]
 pub async fn eliminar_provincia(
@@ -438,7 +438,7 @@ pub async fn eliminar_provincia(
 
 /// POST /api/v1/provincias/{id}/oficina — Crear oficina SEPE para una provincia (admin).
 ///
-/// Requiere autenticacion JWT. El `{id}` del path es el codigo INE de la provincia.
+/// Requiere autenticacion JWT con `admin=true`. El `{id}` del path es el codigo INE de la provincia.
 /// Devuelve 409 si ya existe una oficina para esa provincia.
 ///
 /// # Por que el id de provincia viene del path y no del body
@@ -476,7 +476,7 @@ pub async fn crear_oficina(
 
 /// PUT /api/v1/provincias/{id}/oficina — Actualizar la oficina SEPE de una provincia (admin).
 ///
-/// Requiere autenticacion JWT. El `{id}` del path es el codigo INE de la provincia.
+/// Requiere autenticacion JWT con `admin=true`. El `{id}` del path es el codigo INE de la provincia.
 /// Solo actualiza los campos enviados en el body.
 #[endpoint(tags("Geografia"), security(("bearer_auth" = [])))]
 pub async fn actualizar_oficina(
@@ -507,7 +507,7 @@ pub async fn actualizar_oficina(
 
 /// DELETE /api/v1/provincias/{id}/oficina — Eliminar la oficina SEPE de una provincia (admin).
 ///
-/// Requiere autenticacion JWT. El `{id}` del path es el codigo INE de la provincia.
+/// Requiere autenticacion JWT con `admin=true`. El `{id}` del path es el codigo INE de la provincia.
 /// Devuelve 404 si no existe oficina para esa provincia.
 #[endpoint(tags("Geografia"), security(("bearer_auth" = [])))]
 pub async fn eliminar_oficina(

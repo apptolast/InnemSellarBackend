@@ -58,6 +58,16 @@ spec:
                   name: inem-sellar-backend-secret
                   key: SMTP_PASSWORD
                   optional: true
+            # Emails admin separados por coma. Se guardan como Secret para no
+            # publicar la lista en el repo:
+            #   kubectl -n apptolast-inemsellar patch secret inem-sellar-backend-secret \
+            #     --type=merge -p '{"stringData":{"ADMIN_EMAIL_ALLOWLIST":"admin@dominio.com"}}'
+            - name: ADMIN_EMAIL_ALLOWLIST
+              valueFrom:
+                secretKeyRef:
+                  name: inem-sellar-backend-secret
+                  key: ADMIN_EMAIL_ALLOWLIST
+                  optional: true
           resources:
             requests:
               memory: "128Mi"

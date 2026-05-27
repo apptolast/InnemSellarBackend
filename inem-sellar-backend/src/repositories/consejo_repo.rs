@@ -7,6 +7,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::errors::AppError;
+use crate::models::enums::EstadoModeracion;
 use crate::models::{consejo, consejo_provincia};
 
 pub struct CrearConsejoDto {
@@ -24,6 +25,10 @@ pub struct ActualizarConsejoDto {
     pub imagen_url: Option<String>,
     /// Si se envia, reemplaza las provincias asociadas.
     pub provincias: Option<Vec<i32>>,
+    /// Campo admin-only: permite ocultar/reactivar un consejo.
+    pub activo: Option<bool>,
+    /// Campo admin-only: cambia el estado de moderacion.
+    pub estado_moderacion: Option<EstadoModeracion>,
 }
 
 pub trait ConsejoRepo: Send + Sync {
@@ -164,6 +169,12 @@ impl ConsejoRepo for SeaConsejoRepo {
         }
         if datos.imagen_url.is_some() {
             active.imagen_url = Set(datos.imagen_url);
+        }
+        if datos.activo.is_some() {
+            active.activo = Set(datos.activo);
+        }
+        if datos.estado_moderacion.is_some() {
+            active.estado_moderacion = Set(datos.estado_moderacion);
         }
 
         let resultado = active.update(&*self.db).await.map_err(AppError::from_db)?;

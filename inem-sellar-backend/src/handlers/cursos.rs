@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::AppError;
+use crate::handlers::parsear_estado_moderacion;
+use crate::middleware;
 use crate::repositories::curso_repo::{ActualizarCursoDto, CrearCursoDto};
 use crate::repositories::{CursoRepo, SeaCursoRepo};
 
@@ -111,6 +113,11 @@ pub struct ActualizarCursoRequest {
     /// Nuevas provincias asociadas. Si se envia, reemplaza las existentes.
     /// No enviar este campo = no tocar provincias. Enviar `[]` = eliminar todas.
     pub provincias: Option<Vec<i32>>,
+    /// Admin-only: activar/desactivar el curso.
+    pub activo: Option<bool>,
+    /// Admin-only: estado de moderacion.
+    /// Valores: `"pendiente"`, `"aprobado"`, `"rechazado"`, `"en_revision"`.
+    pub estado_moderacion: Option<String>,
 }
 
 /// Respuesta paginada del listado de cursos.
@@ -297,10 +304,10 @@ pub async fn crear_curso(
     Ok(Json(serde_json::to_value(curso).unwrap_or_default()))
 }
 
-/// PUT /api/v1/cursos/{id} — Actualizar un curso (solo el autor original).
+/// PUT /api/v1/cursos/{id} — Actualizar un curso (autor original o admin).
 ///
-/// Verifica que el usuario autenticado sea el autor del curso antes de
-/// aplicar cualquier cambio. Si no lo es, devuelve 403 Forbidden.
+/// Verifica que el usuario autenticado sea el autor del curso o que el JWT
+/// tenga `admin=true`. Si no lo es, devuelve 403 Forbidden.
 ///
 /// Solo se modifican los campos que se incluyan en el JSON enviado.
 /// El campo `provincias` tiene semantica especial:
@@ -316,6 +323,7 @@ pub async fn actualizar_curso(
     let id_usuario = *depot
         .get::<Uuid>("id_usuario")
         .map_err(|_| AppError::Unauthorized)?;
+    let admin = middleware::es_admin(depot);
 
     let uuid = Uuid::parse_str(&id)
         .map_err(|_| AppError::BadRequest("ID de curso no es un UUID valido".into()))?;
@@ -328,9 +336,17 @@ pub async fn actualizar_curso(
     // Verificar autoria: solo el creador del curso puede modificarlo.
     // `id_autor` es `Option<Uuid>` en el modelo — comparamos con `Some(id_usuario)`.
     let curso_existente = repo.obtener_curso(uuid).await?;
-    if curso_existente.id_autor != Some(id_usuario) {
+    if curso_existente.id_autor != Some(id_usuario) && !admin {
         return Err(AppError::Forbidden);
     }
+    if !admin && (body.activo.is_some() || body.estado_moderacion.is_some()) {
+        return Err(AppError::Forbidden);
+    }
+    let estado_moderacion = body
+        .estado_moderacion
+        .as_deref()
+        .map(parsear_estado_moderacion)
+        .transpose()?;
 
     let dto = ActualizarCursoDto {
         titulo: body.titulo.clone(),
@@ -352,6 +368,8 @@ pub async fn actualizar_curso(
         // - None si el campo no estaba en el JSON => el repo no toca las provincias.
         // - Some(vec) si el campo estaba => el repo reemplaza las provincias.
         provincias: body.provincias.clone(),
+        activo: if admin { body.activo } else { None },
+        estado_moderacion: if admin { estado_moderacion } else { None },
     };
 
     let curso = repo.actualizar_curso(uuid, dto).await?;
@@ -359,7 +377,7 @@ pub async fn actualizar_curso(
     Ok(Json(serde_json::to_value(curso).unwrap_or_default()))
 }
 
-/// DELETE /api/v1/cursos/{id} — Eliminar un curso (solo el autor original).
+/// DELETE /api/v1/cursos/{id} — Eliminar un curso (autor original o admin).
 ///
 /// Elimina fisicamente el curso de la base de datos junto con todas sus
 /// relaciones de provincia (gracias a `ON DELETE CASCADE` en el esquema SQL).
@@ -374,6 +392,7 @@ pub async fn eliminar_curso(
     let id_usuario = *depot
         .get::<Uuid>("id_usuario")
         .map_err(|_| AppError::Unauthorized)?;
+    let admin = middleware::es_admin(depot);
 
     let uuid = Uuid::parse_str(&id)
         .map_err(|_| AppError::BadRequest("ID de curso no es un UUID valido".into()))?;
@@ -385,7 +404,7 @@ pub async fn eliminar_curso(
 
     // Comprobar autoria antes de eliminar.
     let curso = repo.obtener_curso(uuid).await?;
-    if curso.id_autor != Some(id_usuario) {
+    if curso.id_autor != Some(id_usuario) && !admin {
         return Err(AppError::Forbidden);
     }
 

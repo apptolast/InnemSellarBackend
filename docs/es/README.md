@@ -83,6 +83,8 @@ Handler (HTTP) -> Service (logica de negocio) -> Repository (acceso a datos) -> 
   y entrega el Firebase ID Token (RS256) en `POST /api/v1/auth/firebase`
 - El backend lo verifica contra los JWKS de Google (firma + claims `iss`/`aud`/`exp`)
   y emite sus propios tokens HS256 con `jsonwebtoken`
+- Si el email viene verificado y esta en `ADMIN_EMAIL_ALLOWLIST`, el JWT propio
+  incluye `admin=true`. No se usan custom claims de Firebase ni roles en BD.
 - Access token: vida corta (15 min). Se envia en el header `Authorization: Bearer <token>`
 - Refresh token: vida larga (30 dias), guardado en BD (tabla `tokens_refresco`), permite
   renovar el access token sin re-autenticarse
@@ -116,8 +118,9 @@ ORM asincrono sobre SQLx. Caracteristicas:
 - `GET /` — Listar ofertas activas (paginado, filtro por provincia)
 - `GET /{id}` — Detalle de una oferta
 - `POST /` — Crear oferta (requiere auth)
-- `PUT /{id}` — Editar oferta (requiere ser autor)
-- `DELETE /{id}` — Eliminar oferta (requiere ser autor)
+- `PUT /{id}` — Editar oferta (requiere ser autor o admin). Admin puede cambiar
+  `activo` y `estado_moderacion`
+- `DELETE /{id}` — Eliminar oferta (requiere ser autor o admin)
 
 ### Geografia (`/api/v1`)
 - `GET /comunidades` — Listar comunidades autonomas
@@ -125,6 +128,17 @@ ORM asincrono sobre SQLx. Caracteristicas:
 - `GET /provincias` — Listar provincias (filtro opcional por comunidad)
 - `GET /provincias/{id}` — Detalle de provincia
 - `GET /provincias/{id}/oficina` — Oficina SEPE de la provincia
+- `POST/PUT/DELETE /comunidades`, `/provincias` y `/provincias/{id}/oficina`
+  — gestion admin-only
+
+### Moderacion y admin
+- Endpoints admin-only: escrituras de configuracion, geografia y prestaciones,
+  y lectura/procesado/borrado de reportes.
+- `PUT /api/v1/reportes/{id}` mantiene `{ "aceptar": true|false }` y acepta
+  opcionalmente `{ "accion": "ocultar" }` junto con `aceptar=true` para marcar
+  el contenido reportado como `activo=false` y `estado_moderacion="rechazado"`.
+- `PUT/DELETE` de ofertas, consejos y cursos permite autor o admin. Solo admin
+  puede modificar `activo` y `estado_moderacion`.
 
 ### Sistema
 - `GET /` — Health check (devuelve 200 OK)
@@ -160,6 +174,7 @@ inem-sellar-backend/src/
 | `JWT_SECRET`              | Clave secreta para firmar tokens JWT propios | Cadena aleatoria de 48+ bytes |
 | `JWT_EXPIRACION_MINUTOS`  | Duracion del access token en minutos         | `15`                          |
 | `FIREBASE_PROJECT_ID`     | Project ID de Firebase (sin default; panic) | `inemsellar-app`              |
+| `ADMIN_EMAIL_ALLOWLIST`   | Emails admin separados por coma              | `admin@dominio.com`           |
 | `SERVER_ADDR`             | Direccion publica (para logs)                | `0.0.0.0:8080`                |
 | `PORT_ADDR`               | Direccion de binding del socket TCP          | `0.0.0.0:8080`                |
 | `RUST_LOG`                | Nivel de logs (trace/debug/info/warn/error)  | `info`                        |

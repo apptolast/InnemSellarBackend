@@ -95,6 +95,17 @@ pub trait ProveedorAutenticacionRepo: Send + Sync {
         &self,
         id_usuario: Uuid,
     ) -> impl std::future::Future<Output = Result<bool, AppError>> + Send;
+
+    /// `true` si el usuario tiene alguna identidad Firebase con ese email
+    /// y `datos_proveedor.email_verified=true`.
+    ///
+    /// Se usa al refrescar tokens para no elevar a admin solo por estar en
+    /// allowlist: el email tambien debe haber sido verificado en Firebase.
+    fn tiene_email_verificado(
+        &self,
+        id_usuario: Uuid,
+        email: &str,
+    ) -> impl std::future::Future<Output = Result<bool, AppError>> + Send;
 }
 
 /// Implementacion con SeaORM.
@@ -210,5 +221,34 @@ impl ProveedorAutenticacionRepo for SeaProveedorAutenticacionRepo {
             .await
             .map_err(AppError::from_db)?;
         Ok(cuantos > 0)
+    }
+
+    async fn tiene_email_verificado(
+        &self,
+        id_usuario: Uuid,
+        email: &str,
+    ) -> Result<bool, AppError> {
+        let email_normalizado = email.trim().to_ascii_lowercase();
+        let proveedores = proveedor_autenticacion::Entity::find()
+            .filter(proveedor_autenticacion::Column::IdUsuario.eq(id_usuario))
+            .all(&*self.db)
+            .await
+            .map_err(AppError::from_db)?;
+
+        Ok(proveedores.into_iter().any(|proveedor| {
+            let mismo_email = proveedor
+                .email_proveedor
+                .as_deref()
+                .map(|email| email.trim().eq_ignore_ascii_case(&email_normalizado))
+                .unwrap_or(false);
+            let email_verificado = proveedor
+                .datos_proveedor
+                .as_ref()
+                .and_then(|datos| datos.get("email_verified"))
+                .and_then(|valor| valor.as_bool())
+                == Some(true);
+
+            mismo_email && email_verificado
+        }))
     }
 }

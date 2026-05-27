@@ -5,6 +5,8 @@
 // NO accede a la BD — eso lo hace el repositorio.
 // NO maneja HTTP — eso lo hace el handler.
 
+use std::collections::HashSet;
+
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::Rng;
@@ -29,6 +31,9 @@ use crate::errors::AppError;
 /// `#[serde(default)]` garantiza retrocompatibilidad: los tokens emitidos
 /// ANTES de anadir este campo no llevan `anonimo` en el JSON; al
 /// deserializar usaran `false` automaticamente.
+///
+/// `admin` sigue la misma regla: tokens antiguos no llevan el campo y se
+/// tratan como no-admin. Esto evita romper sesiones moviles existentes.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     /// UUID del usuario como string
@@ -42,6 +47,10 @@ pub struct Claims {
     /// emitidos antes de la integracion con Firebase).
     #[serde(default)]
     pub anonimo: bool,
+    /// `true` si el token corresponde a un email verificado incluido en
+    /// `ADMIN_EMAIL_ALLOWLIST`.
+    #[serde(default)]
+    pub admin: bool,
 }
 
 /// Servicio de autenticacion — encapsula toda la criptografia y logica de tokens.
@@ -59,15 +68,48 @@ pub struct Claims {
 pub struct AuthService {
     jwt_secret: String,
     jwt_expiracion_minutos: u64,
+    admin_email_allowlist: HashSet<String>,
 }
 
 impl AuthService {
     /// Crea un nuevo servicio con la configuracion JWT dada.
     pub fn new(jwt_secret: String, jwt_expiracion_minutos: u64) -> Self {
+        Self::new_with_admin_email_allowlist(jwt_secret, jwt_expiracion_minutos, "")
+    }
+
+    /// Crea un servicio configurando tambien la allowlist admin.
+    ///
+    /// `admin_email_allowlist` usa el formato de entorno:
+    /// `admin1@example.com,admin2@example.com`. La comparacion es
+    /// case-insensitive y se ignoran espacios/entradas vacias.
+    pub fn new_with_admin_email_allowlist(
+        jwt_secret: String,
+        jwt_expiracion_minutos: u64,
+        admin_email_allowlist: impl AsRef<str>,
+    ) -> Self {
         Self {
             jwt_secret,
             jwt_expiracion_minutos,
+            admin_email_allowlist: parse_admin_email_allowlist(admin_email_allowlist.as_ref()),
         }
+    }
+
+    /// Devuelve `true` si el email pertenece a la allowlist admin.
+    pub fn email_en_admin_allowlist(&self, email: &str) -> bool {
+        self.admin_email_allowlist
+            .contains(&normalizar_email(email))
+    }
+
+    /// Devuelve `true` solo si el email esta verificado y en allowlist.
+    pub fn es_email_admin_verificado(
+        &self,
+        email: Option<&str>,
+        email_verificado: Option<bool>,
+    ) -> bool {
+        email_verificado == Some(true)
+            && email
+                .map(|email| self.email_en_admin_allowlist(email))
+                .unwrap_or(false)
     }
 
     /// Genera un access token JWT firmado con HS256 marcando si el usuario
@@ -90,6 +132,17 @@ impl AuthService {
         id_usuario: Uuid,
         anonimo: bool,
     ) -> Result<String, AppError> {
+        self.generar_access_token_con_flags(id_usuario, anonimo, false)
+    }
+
+    /// Genera un access token JWT firmado con HS256 marcando los flags
+    /// actuales del usuario.
+    pub fn generar_access_token_con_flags(
+        &self,
+        id_usuario: Uuid,
+        anonimo: bool,
+        admin: bool,
+    ) -> Result<String, AppError> {
         let ahora = Utc::now();
         let expiracion = ahora + Duration::minutes(self.jwt_expiracion_minutos as i64);
 
@@ -98,6 +151,7 @@ impl AuthService {
             exp: expiracion.timestamp() as usize,
             iat: ahora.timestamp() as usize,
             anonimo,
+            admin,
         };
 
         encode(
@@ -143,5 +197,45 @@ impl AuthService {
         let mut hasher = Sha256::new();
         hasher.update(token.as_bytes());
         format!("{:x}", hasher.finalize())
+    }
+}
+
+fn parse_admin_email_allowlist(raw: &str) -> HashSet<String> {
+    raw.split(',')
+        .map(normalizar_email)
+        .filter(|email| !email.is_empty())
+        .collect()
+}
+
+fn normalizar_email(email: &str) -> String {
+    email.trim().to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn admin_allowlist_ignora_espacios_case_y_vacios() {
+        let service = AuthService::new_with_admin_email_allowlist(
+            "secret".into(),
+            15,
+            " Admin@Example.com, ,owner@example.com ",
+        );
+
+        assert!(service.email_en_admin_allowlist("admin@example.com"));
+        assert!(service.email_en_admin_allowlist("OWNER@EXAMPLE.COM"));
+        assert!(!service.email_en_admin_allowlist("user@example.com"));
+    }
+
+    #[test]
+    fn admin_requiere_email_verificado() {
+        let service =
+            AuthService::new_with_admin_email_allowlist("secret".into(), 15, "admin@example.com");
+
+        assert!(service.es_email_admin_verificado(Some("admin@example.com"), Some(true)));
+        assert!(!service.es_email_admin_verificado(Some("admin@example.com"), Some(false)));
+        assert!(!service.es_email_admin_verificado(Some("admin@example.com"), None));
+        assert!(!service.es_email_admin_verificado(None, Some(true)));
     }
 }

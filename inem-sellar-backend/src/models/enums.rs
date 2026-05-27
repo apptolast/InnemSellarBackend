@@ -42,6 +42,24 @@ pub enum EstadoModeracion {
     EnRevision,
 }
 
+impl EstadoModeracion {
+    /// Convierte el literal usado por la API al enum de BD.
+    pub fn desde_api(s: &str) -> Option<Self> {
+        match s {
+            "pendiente" => Some(Self::Pendiente),
+            "aprobado" => Some(Self::Aprobado),
+            "rechazado" => Some(Self::Rechazado),
+            "en_revision" => Some(Self::EnRevision),
+            _ => None,
+        }
+    }
+
+    /// Lista legible de valores aceptados por la API.
+    pub fn valores_api() -> &'static str {
+        "pendiente, aprobado, rechazado, en_revision"
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "tipo_contenido")]
 pub enum TipoContenido {

@@ -81,7 +81,7 @@ pub async fn obtener_configuracion(
 
 /// POST /api/v1/configuracion — Crear una nueva entrada de configuracion (admin).
 ///
-/// Requiere autenticacion JWT. Devuelve 409 si la clave ya existe.
+/// Requiere autenticacion JWT con `admin=true`. Devuelve 409 si la clave ya existe.
 #[endpoint(tags("Configuracion"), security(("bearer_auth" = [])))]
 pub async fn crear_configuracion(
     body: JsonBody<CrearConfiguracionRequest>,
@@ -108,7 +108,7 @@ pub async fn crear_configuracion(
 
 /// PUT /api/v1/configuracion/{clave} — Actualizar una configuracion (admin).
 ///
-/// Requiere autenticacion JWT. Solo actualiza campos enviados.
+/// Requiere autenticacion JWT con `admin=true`. Solo actualiza campos enviados.
 #[endpoint(tags("Configuracion"), security(("bearer_auth" = [])))]
 pub async fn actualizar_configuracion(
     clave: PathParam<String>,

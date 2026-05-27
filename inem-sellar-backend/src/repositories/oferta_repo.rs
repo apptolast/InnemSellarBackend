@@ -11,6 +11,7 @@ use sea_orm::{
 use uuid::Uuid;
 
 use crate::errors::AppError;
+use crate::models::enums::EstadoModeracion;
 use crate::models::{oferta_empleo, oferta_provincia};
 
 /// DTO para crear una oferta (datos que vienen del handler, no del HTTP).
@@ -39,6 +40,10 @@ pub struct ActualizarOfertaDto {
     /// Si se envia, reemplaza las provincias asociadas.
     /// `None` = no tocar provincias. `Some(vec![])` = eliminar todas.
     pub provincias: Option<Vec<i32>>,
+    /// Campo admin-only: permite ocultar/reactivar una oferta.
+    pub activo: Option<bool>,
+    /// Campo admin-only: cambia el estado de moderacion.
+    pub estado_moderacion: Option<EstadoModeracion>,
 }
 
 /// Contrato de acceso a datos de ofertas.
@@ -198,6 +203,12 @@ impl OfertaRepo for SeaOfertaRepo {
         }
         if datos.web_contacto.is_some() {
             active.web_contacto = Set(datos.web_contacto);
+        }
+        if datos.activo.is_some() {
+            active.activo = Set(datos.activo);
+        }
+        if datos.estado_moderacion.is_some() {
+            active.estado_moderacion = Set(datos.estado_moderacion);
         }
 
         let resultado = active.update(&*self.db).await.map_err(AppError::from_db)?;

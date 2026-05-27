@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::AppError;
+use crate::handlers::parsear_estado_moderacion;
+use crate::middleware;
 use crate::repositories::consejo_repo::{ActualizarConsejoDto, CrearConsejoDto};
 use crate::repositories::{ConsejoRepo, SeaConsejoRepo};
 
@@ -76,6 +78,11 @@ pub struct ActualizarConsejoRequest {
     /// Nuevas provincias asociadas. Si se envia, reemplaza las existentes.
     /// No enviar este campo = no tocar provincias. Enviar `[]` = eliminar todas.
     pub provincias: Option<Vec<i32>>,
+    /// Admin-only: activar/desactivar el consejo.
+    pub activo: Option<bool>,
+    /// Admin-only: estado de moderacion.
+    /// Valores: `"pendiente"`, `"aprobado"`, `"rechazado"`, `"en_revision"`.
+    pub estado_moderacion: Option<String>,
 }
 
 /// Respuesta paginada del listado de consejos.
@@ -220,10 +227,10 @@ pub async fn crear_consejo(
     Ok(Json(serde_json::to_value(consejo).unwrap_or_default()))
 }
 
-/// PUT /api/v1/consejos/{id} — Actualizar consejo (solo el autor original).
+/// PUT /api/v1/consejos/{id} — Actualizar consejo (autor original o admin).
 ///
-/// Verifica que el usuario autenticado sea el autor antes de aplicar cambios.
-/// Soporta actualizacion parcial — solo se modifican los campos que se envien.
+/// Verifica que el usuario autenticado sea el autor o admin antes de aplicar
+/// cambios. `activo` y `estado_moderacion` son campos admin-only.
 #[endpoint(tags("Consejos"), security(("bearer_auth" = [])))]
 pub async fn actualizar_consejo(
     id: PathParam<String>,
@@ -233,6 +240,7 @@ pub async fn actualizar_consejo(
     let id_usuario = *depot
         .get::<Uuid>("id_usuario")
         .map_err(|_| AppError::Unauthorized)?;
+    let admin = middleware::es_admin(depot);
 
     let uuid = Uuid::parse_str(&id)
         .map_err(|_| AppError::BadRequest("ID de consejo no es un UUID valido".into()))?;
@@ -244,9 +252,17 @@ pub async fn actualizar_consejo(
 
     // Verificar que el usuario es el autor del consejo
     let consejo_existente = repo.obtener_consejo(uuid).await?;
-    if consejo_existente.id_autor != Some(id_usuario) {
+    if consejo_existente.id_autor != Some(id_usuario) && !admin {
         return Err(AppError::Forbidden);
     }
+    if !admin && (body.activo.is_some() || body.estado_moderacion.is_some()) {
+        return Err(AppError::Forbidden);
+    }
+    let estado_moderacion = body
+        .estado_moderacion
+        .as_deref()
+        .map(parsear_estado_moderacion)
+        .transpose()?;
 
     let dto = ActualizarConsejoDto {
         titulo: body.titulo.clone(),
@@ -254,6 +270,8 @@ pub async fn actualizar_consejo(
         web: body.web.clone(),
         imagen_url: body.imagen_url.clone(),
         provincias: body.provincias.clone(),
+        activo: if admin { body.activo } else { None },
+        estado_moderacion: if admin { estado_moderacion } else { None },
     };
 
     let consejo = repo.actualizar_consejo(uuid, dto).await?;
@@ -261,7 +279,7 @@ pub async fn actualizar_consejo(
     Ok(Json(serde_json::to_value(consejo).unwrap_or_default()))
 }
 
-/// DELETE /api/v1/consejos/{id} — Eliminar consejo (solo el autor original).
+/// DELETE /api/v1/consejos/{id} — Eliminar consejo (autor original o admin).
 ///
 /// Elimina fisicamente el consejo de la BD. La verificacion de autoria
 /// se hace antes de borrar para evitar eliminar contenido de otros usuarios.
@@ -273,6 +291,7 @@ pub async fn eliminar_consejo(
     let id_usuario = *depot
         .get::<Uuid>("id_usuario")
         .map_err(|_| AppError::Unauthorized)?;
+    let admin = middleware::es_admin(depot);
 
     let uuid = Uuid::parse_str(&id)
         .map_err(|_| AppError::BadRequest("ID de consejo no es un UUID valido".into()))?;
@@ -284,7 +303,7 @@ pub async fn eliminar_consejo(
 
     // Verificar que el usuario es el autor antes de eliminar
     let consejo = repo.obtener_consejo(uuid).await?;
-    if consejo.id_autor != Some(id_usuario) {
+    if consejo.id_autor != Some(id_usuario) && !admin {
         return Err(AppError::Forbidden);
     }
 

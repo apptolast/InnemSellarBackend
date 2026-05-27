@@ -9,6 +9,8 @@
 //!   1. Usuario crea un reporte (`crear_reporte`) — estado: `pendiente`
 //!   2. Admin lista reportes pendientes (`listar_reportes_pendientes`)
 //!   3. Admin acepta o rechaza (`procesar_reporte`) — estado: `aceptado` | `rechazado`
+//!      Opcionalmente, al aceptar puede enviar `accion="ocultar"` para marcar
+//!      el contenido reportado como `activo=false` y `estado_moderacion="rechazado"`.
 
 use salvo::oapi::extract::{JsonBody, PathParam};
 use salvo::prelude::*;
@@ -60,6 +62,19 @@ fn parsear_motivo(s: &str) -> Result<MotivoReporte, AppError> {
     }
 }
 
+fn parsear_accion_procesar_reporte(accion: Option<&str>, aceptar: bool) -> Result<bool, AppError> {
+    match accion.map(str::trim).filter(|s| !s.is_empty()) {
+        None => Ok(false),
+        Some("ocultar") if aceptar => Ok(true),
+        Some("ocultar") => Err(AppError::BadRequest(
+            "accion='ocultar' solo es valida cuando aceptar=true".into(),
+        )),
+        Some(otra) => Err(AppError::BadRequest(format!(
+            "accion invalida: '{otra}'. Valores validos: ocultar"
+        ))),
+    }
+}
+
 // ─── DTOs ────────────────────────────────────────────────────────
 
 /// Body para POST /api/v1/reportes — reportar un contenido.
@@ -88,13 +103,16 @@ pub struct CrearReporteRequest {
 
 /// Body para PUT /api/v1/reportes/{id} — procesar un reporte (aceptar o rechazar).
 ///
-/// Solo los administradores deberan llamar a este endpoint. La verificacion
-/// de rol admin es una mejora futura — actualmente solo requiere autenticacion.
+/// Solo los administradores pueden llamar a este endpoint.
 #[derive(Deserialize, ToSchema)]
 pub struct ProcesarReporteRequest {
     /// `true` = aceptar el reporte (contenido sera moderado).
     /// `false` = rechazar el reporte (contenido se mantiene).
     pub aceptar: bool,
+    /// Accion opcional al aceptar. Valores soportados:
+    /// - ausente/null: mantiene el contenido como esta.
+    /// - `"ocultar"`: si `aceptar=true`, oculta el contenido reportado.
+    pub accion: Option<String>,
 }
 
 /// Respuesta de confirmacion de operacion exitosa.
@@ -188,13 +206,12 @@ pub async fn crear_reporte(
 /// GET /api/v1/reportes/pendientes — Listar reportes pendientes de revision.
 ///
 /// Endpoint de administracion — devuelve todos los reportes cuyo estado
-/// es `pendiente`. En el futuro se anadira verificacion de rol admin.
-/// Por ahora requiere autenticacion valida.
+/// es `pendiente`. Requiere JWT propio con `admin=true`.
 #[endpoint(tags("Reportes"), security(("bearer_auth" = [])))]
 pub async fn listar_reportes_pendientes(
     depot: &mut Depot,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Verificar autenticacion — el middleware ya lo comprueba, pero este
+    // Verificar autenticacion — los middlewares ya la comprueban, pero este
     // `get` hace la verificacion explicita en el handler para claridad.
     let _id_usuario = depot
         .get::<Uuid>("id_usuario")
@@ -215,6 +232,8 @@ pub async fn listar_reportes_pendientes(
 /// Registra quien proceso el reporte (`id_procesador` del JWT) y cuando
 /// (`procesado_en` se guarda en el repositorio). El estado del reporte pasa
 /// de `pendiente` a `aceptado` o `rechazado` segun el campo `aceptar`.
+/// Si `aceptar=true` y `accion="ocultar"`, tambien oculta el contenido
+/// reportado (`activo=false`, `estado_moderacion="rechazado"`).
 ///
 /// # Por que `PathParam<String>` en vez de `PathParam<Uuid>`
 /// Salvo OAPI puede documentar `PathParam<String>` sin problemas.
@@ -227,7 +246,7 @@ pub async fn procesar_reporte(
     body: JsonBody<ProcesarReporteRequest>,
     depot: &mut Depot,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // El procesador es el usuario autenticado (admin en el futuro).
+    // El procesador es el usuario autenticado con `admin=true`.
     let id_procesador = *depot
         .get::<Uuid>("id_usuario")
         .map_err(|_| AppError::Unauthorized)?;
@@ -241,9 +260,10 @@ pub async fn procesar_reporte(
         .obtain::<SeaReporteRepo>()
         .map_err(|_| AppError::Internal("ReporteRepo no disponible".into()))?
         .clone();
+    let ocultar_contenido = parsear_accion_procesar_reporte(body.accion.as_deref(), body.aceptar)?;
 
     let reporte = repo
-        .procesar_reporte(uuid, id_procesador, body.aceptar)
+        .procesar_reporte(uuid, id_procesador, body.aceptar, ocultar_contenido)
         .await?;
 
     Ok(Json(serde_json::to_value(reporte).unwrap_or_default()))
@@ -278,7 +298,7 @@ pub async fn obtener_reporte(
 /// DELETE /api/v1/reportes/{id} — Eliminar un reporte (admin).
 ///
 /// Elimina fisicamente el reporte de la BD. Solo deberia usarse
-/// por administradores. La verificacion de rol admin es futura.
+/// por administradores.
 #[endpoint(tags("Reportes"), security(("bearer_auth" = [])))]
 pub async fn eliminar_reporte(
     id: PathParam<String>,
@@ -353,6 +373,20 @@ mod tests {
         // Valor invalido
         assert!(matches!(
             parsear_motivo("mentira"),
+            Err(AppError::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn parsear_accion_ocultar_solo_si_acepta() {
+        assert!(!parsear_accion_procesar_reporte(None, true).unwrap());
+        assert!(parsear_accion_procesar_reporte(Some("ocultar"), true).unwrap());
+        assert!(matches!(
+            parsear_accion_procesar_reporte(Some("ocultar"), false),
+            Err(AppError::BadRequest(_))
+        ));
+        assert!(matches!(
+            parsear_accion_procesar_reporte(Some("borrar"), true),
             Err(AppError::BadRequest(_))
         ));
     }

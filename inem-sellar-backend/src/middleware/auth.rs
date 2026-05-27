@@ -4,7 +4,7 @@
 //
 // # Como funciona un middleware en Salvo
 // Un middleware es un handler que decide si la peticion puede continuar.
-// Si el token es valido: inserta el id_usuario en Depot y llama a call_next.
+// Si el token es valido: inserta id_usuario/admin en Depot y llama a call_next.
 // Si no: responde 401 y llama a skip_rest (no llega al handler).
 //
 // Es como un middleware de Express.js o un interceptor de Dio en Flutter:
@@ -25,7 +25,7 @@ use crate::services::AuthService;
 /// 1. Busca el header `Authorization: Bearer <token>`
 /// 2. Extrae el token (quita el prefijo "Bearer ")
 /// 3. Verifica el JWT con AuthService
-/// 4. Si es valido: inserta `id_usuario` en Depot → call_next
+/// 4. Si es valido: inserta `id_usuario` y `admin` en Depot → call_next
 /// 5. Si no: responde 401 → skip_rest
 #[handler]
 pub async fn auth_middleware(
@@ -68,6 +68,7 @@ pub async fn auth_middleware(
             // Token valido: extraemos el UUID del usuario y lo metemos en Depot
             if let Ok(id_usuario) = Uuid::parse_str(&claims.sub) {
                 depot.insert("id_usuario", id_usuario);
+                depot.insert("admin", claims.admin);
                 ctrl.call_next(req, depot, res).await;
             } else {
                 res.status_code(StatusCode::UNAUTHORIZED);
@@ -87,4 +88,37 @@ pub async fn auth_middleware(
             ctrl.skip_rest();
         }
     }
+}
+
+/// Devuelve si la peticion autenticada pertenece a un admin.
+///
+/// `auth_middleware` inserta siempre este flag. Si falta o no es `true`, se
+/// trata como no-admin para que tokens antiguos o rutas mal cableadas fallen
+/// cerradas.
+pub fn es_admin(depot: &Depot) -> bool {
+    depot.get::<bool>("admin").copied().unwrap_or(false)
+}
+
+/// Middleware para rutas que requieren `admin=true` en el JWT propio.
+///
+/// Debe ejecutarse despues de `auth_middleware`. Si el flag no existe o vale
+/// `false`, devuelve 403 como exige el contrato admin.
+#[handler]
+pub async fn admin_middleware(
+    req: &mut Request,
+    depot: &mut Depot,
+    res: &mut Response,
+    ctrl: &mut FlowCtrl,
+) {
+    if es_admin(depot) {
+        ctrl.call_next(req, depot, res).await;
+        return;
+    }
+
+    res.status_code(StatusCode::FORBIDDEN);
+    res.render(Json(serde_json::json!({
+        "error": "Sin permisos para esta accion",
+        "codigo": 403
+    })));
+    ctrl.skip_rest();
 }

@@ -354,6 +354,7 @@ mod tests {
             smtp_password: "".into(), // vacio -> deshabilitado
             report_email_from: "admin@apptolast.com".into(),
             report_email_to: "admin@apptolast.com".into(),
+            admin_email_allowlist: "".into(),
         };
 
         let notifier = EmailNotifier::from_config(&cfg).expect("no debe fallar");

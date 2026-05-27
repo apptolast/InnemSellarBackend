@@ -23,32 +23,32 @@ use crate::middleware;
 /// /api/v1/perfil                            → GET/PUT perfil propio (auth)
 /// /api/v1/usuarios/{id}                     → GET perfil publico
 ///
-/// /api/v1/comunidades                       → GET listar / POST crear (auth)
-/// /api/v1/comunidades/{id}                  → GET obtener / PUT (auth) / DELETE (auth)
-/// /api/v1/provincias                        → GET listar (?id_comunidad=X) / POST crear (auth)
-/// /api/v1/provincias/{id}                   → GET obtener / PUT (auth) / DELETE (auth)
-/// /api/v1/provincias/{id}/oficina           → GET / POST (auth) / PUT (auth) / DELETE (auth)
+/// /api/v1/comunidades                       → GET listar / POST crear (admin)
+/// /api/v1/comunidades/{id}                  → GET obtener / PUT (admin) / DELETE (admin)
+/// /api/v1/provincias                        → GET listar (?id_comunidad=X) / POST crear (admin)
+/// /api/v1/provincias/{id}                   → GET obtener / PUT (admin) / DELETE (admin)
+/// /api/v1/provincias/{id}/oficina           → GET / POST (admin) / PUT (admin) / DELETE (admin)
 ///
 /// /api/v1/ofertas                           → GET listar / POST crear (auth)
-/// /api/v1/ofertas/{id}                      → GET / PUT (auth) / DELETE (auth)
+/// /api/v1/ofertas/{id}                      → GET / PUT (autor/admin) / DELETE (autor/admin)
 ///
 /// /api/v1/consejos                          → GET listar / POST crear (auth)
-/// /api/v1/consejos/{id}                     → GET / PUT (auth) / DELETE (auth)
+/// /api/v1/consejos/{id}                     → GET / PUT (autor/admin) / DELETE (autor/admin)
 ///
 /// /api/v1/cursos                            → GET listar / POST crear (auth)
-/// /api/v1/cursos/{id}                       → GET / PUT (auth) / DELETE (auth)
+/// /api/v1/cursos/{id}                       → GET / PUT (autor/admin) / DELETE (autor/admin)
 ///
 /// /api/v1/votos                             → GET / POST / DELETE (auth)
 ///
 /// /api/v1/reportes                          → POST crear (auth)
-/// /api/v1/reportes/pendientes               → GET listar (auth/admin)
-/// /api/v1/reportes/{id}                     → PUT procesar (auth/admin)
+/// /api/v1/reportes/pendientes               → GET listar (admin)
+/// /api/v1/reportes/{id}                     → GET / PUT procesar / DELETE (admin)
 ///
-/// /api/v1/prestaciones                      → GET listar / POST crear (auth/admin)
-/// /api/v1/prestaciones/{id}                 → GET / PUT (auth/admin) / DELETE (auth/admin)
+/// /api/v1/prestaciones                      → GET listar / POST crear (admin)
+/// /api/v1/prestaciones/{id}                 → GET / PUT (admin) / DELETE (admin)
 ///
-/// /api/v1/configuracion                     → GET listar / POST crear (auth/admin)
-/// /api/v1/configuracion/{clave}             → GET / PUT (auth/admin) / DELETE (auth/admin)
+/// /api/v1/configuracion                     → GET listar / POST crear (admin)
+/// /api/v1/configuracion/{clave}             → GET / PUT (admin) / DELETE (admin)
 /// ```
 pub fn crear_router() -> Router {
     Router::new().push(
@@ -79,6 +79,7 @@ pub fn crear_router() -> Router {
                     .push(
                         Router::new()
                             .hoop(middleware::auth_middleware)
+                            .hoop(middleware::admin_middleware)
                             .post(geografia::crear_comunidad),
                     )
                     .push(
@@ -87,6 +88,7 @@ pub fn crear_router() -> Router {
                             .push(
                                 Router::new()
                                     .hoop(middleware::auth_middleware)
+                                    .hoop(middleware::admin_middleware)
                                     .put(geografia::actualizar_comunidad)
                                     .delete(geografia::eliminar_comunidad),
                             ),
@@ -98,6 +100,7 @@ pub fn crear_router() -> Router {
                     .push(
                         Router::new()
                             .hoop(middleware::auth_middleware)
+                            .hoop(middleware::admin_middleware)
                             .post(geografia::crear_provincia),
                     )
                     .push(
@@ -106,6 +109,7 @@ pub fn crear_router() -> Router {
                             .push(
                                 Router::new()
                                     .hoop(middleware::auth_middleware)
+                                    .hoop(middleware::admin_middleware)
                                     .put(geografia::actualizar_provincia)
                                     .delete(geografia::eliminar_provincia),
                             )
@@ -115,6 +119,7 @@ pub fn crear_router() -> Router {
                                     .push(
                                         Router::new()
                                             .hoop(middleware::auth_middleware)
+                                            .hoop(middleware::admin_middleware)
                                             .post(geografia::crear_oficina)
                                             .put(geografia::actualizar_oficina)
                                             .delete(geografia::eliminar_oficina),
@@ -192,9 +197,14 @@ pub fn crear_router() -> Router {
                 Router::with_path("reportes")
                     .hoop(middleware::auth_middleware)
                     .post(reportes::crear_reporte)
-                    .push(Router::with_path("pendientes").get(reportes::listar_reportes_pendientes))
+                    .push(
+                        Router::with_path("pendientes")
+                            .hoop(middleware::admin_middleware)
+                            .get(reportes::listar_reportes_pendientes),
+                    )
                     .push(
                         Router::with_path("{id}")
+                            .hoop(middleware::admin_middleware)
                             .get(reportes::obtener_reporte)
                             .put(reportes::procesar_reporte)
                             .delete(reportes::eliminar_reporte),
@@ -207,6 +217,7 @@ pub fn crear_router() -> Router {
                     .push(
                         Router::new()
                             .hoop(middleware::auth_middleware)
+                            .hoop(middleware::admin_middleware)
                             .post(prestaciones::crear_prestacion),
                     )
                     .push(
@@ -215,6 +226,7 @@ pub fn crear_router() -> Router {
                             .push(
                                 Router::new()
                                     .hoop(middleware::auth_middleware)
+                                    .hoop(middleware::admin_middleware)
                                     .put(prestaciones::actualizar_prestacion)
                                     .delete(prestaciones::eliminar_prestacion),
                             ),
@@ -227,6 +239,7 @@ pub fn crear_router() -> Router {
                     .push(
                         Router::new()
                             .hoop(middleware::auth_middleware)
+                            .hoop(middleware::admin_middleware)
                             .post(configuracion::crear_configuracion),
                     )
                     .push(
@@ -235,6 +248,7 @@ pub fn crear_router() -> Router {
                             .push(
                                 Router::new()
                                     .hoop(middleware::auth_middleware)
+                                    .hoop(middleware::admin_middleware)
                                     .put(configuracion::actualizar_configuracion)
                                     .delete(configuracion::eliminar_configuracion),
                             ),

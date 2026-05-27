@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::AppError;
+use crate::handlers::parsear_estado_moderacion;
+use crate::middleware;
 use crate::repositories::oferta_repo::{ActualizarOfertaDto, CrearOfertaDto};
 use crate::repositories::{OfertaRepo, SeaOfertaRepo};
 
@@ -65,6 +67,11 @@ pub struct ActualizarOfertaRequest {
     /// Nuevas provincias asociadas. Si se envia, reemplaza las existentes.
     /// No enviar este campo = no tocar provincias. Enviar `[]` = eliminar todas.
     pub provincias: Option<Vec<i32>>,
+    /// Admin-only: activar/desactivar la oferta.
+    pub activo: Option<bool>,
+    /// Admin-only: estado de moderacion.
+    /// Valores: `"pendiente"`, `"aprobado"`, `"rechazado"`, `"en_revision"`.
+    pub estado_moderacion: Option<String>,
 }
 
 /// Respuesta paginada de listado de ofertas.
@@ -192,9 +199,11 @@ pub async fn crear_oferta(
     Ok(Json(serde_json::to_value(oferta).unwrap_or_default()))
 }
 
-/// PUT /api/v1/ofertas/{id} — Actualizar oferta (solo el autor original).
+/// PUT /api/v1/ofertas/{id} — Actualizar oferta (autor original o admin).
 ///
-/// Verifica que el usuario autenticado sea el autor antes de aplicar cambios.
+/// Verifica que el usuario autenticado sea el autor o que el JWT tenga
+/// `admin=true` antes de aplicar cambios. Los campos `activo` y
+/// `estado_moderacion` solo pueden modificarlos admins.
 #[endpoint(tags("Ofertas"), security(("bearer_auth" = [])))]
 pub async fn actualizar_oferta(
     id: PathParam<String>,
@@ -204,6 +213,7 @@ pub async fn actualizar_oferta(
     let id_usuario = *depot
         .get::<Uuid>("id_usuario")
         .map_err(|_| AppError::Unauthorized)?;
+    let admin = middleware::es_admin(depot);
 
     let uuid = Uuid::parse_str(&id)
         .map_err(|_| AppError::BadRequest("ID de oferta no es un UUID valido".into()))?;
@@ -215,9 +225,17 @@ pub async fn actualizar_oferta(
 
     // Verificar que el usuario es el autor de la oferta
     let oferta_existente = repo.obtener_oferta(uuid).await?;
-    if oferta_existente.id_autor != id_usuario {
+    if oferta_existente.id_autor != id_usuario && !admin {
         return Err(AppError::Forbidden);
     }
+    if !admin && (body.activo.is_some() || body.estado_moderacion.is_some()) {
+        return Err(AppError::Forbidden);
+    }
+    let estado_moderacion = body
+        .estado_moderacion
+        .as_deref()
+        .map(parsear_estado_moderacion)
+        .transpose()?;
 
     let dto = ActualizarOfertaDto {
         titulo_puesto: body.titulo_puesto.clone(),
@@ -228,6 +246,8 @@ pub async fn actualizar_oferta(
         email_contacto: body.email_contacto.clone(),
         web_contacto: body.web_contacto.clone(),
         provincias: body.provincias.clone(),
+        activo: if admin { body.activo } else { None },
+        estado_moderacion: if admin { estado_moderacion } else { None },
     };
 
     let oferta = repo.actualizar_oferta(uuid, dto).await?;
@@ -235,7 +255,7 @@ pub async fn actualizar_oferta(
     Ok(Json(serde_json::to_value(oferta).unwrap_or_default()))
 }
 
-/// DELETE /api/v1/ofertas/{id} — Eliminar oferta (solo el autor original).
+/// DELETE /api/v1/ofertas/{id} — Eliminar oferta (autor original o admin).
 ///
 /// Elimina fisicamente la oferta de la BD. La verificacion de autoria
 /// se hace antes de borrar para evitar eliminar contenido de otros usuarios.
@@ -247,6 +267,7 @@ pub async fn eliminar_oferta(
     let id_usuario = *depot
         .get::<Uuid>("id_usuario")
         .map_err(|_| AppError::Unauthorized)?;
+    let admin = middleware::es_admin(depot);
 
     let uuid = Uuid::parse_str(&id)
         .map_err(|_| AppError::BadRequest("ID de oferta no es un UUID valido".into()))?;
@@ -258,7 +279,7 @@ pub async fn eliminar_oferta(
 
     // Verificar que el usuario es el autor
     let oferta = repo.obtener_oferta(uuid).await?;
-    if oferta.id_autor != id_usuario {
+    if oferta.id_autor != id_usuario && !admin {
         return Err(AppError::Forbidden);
     }
 
