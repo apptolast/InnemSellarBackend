@@ -112,8 +112,8 @@
 <a href=#112 id=112 data-nosnippet>112</a>    <span class="doccomment">/// Emails administradores separados por coma.
 <a href=#113 id=113 data-nosnippet>113</a>    ///
 <a href=#114 id=114 data-nosnippet>114</a>    /// Se lee de `ADMIN_EMAIL_ALLOWLIST`. No es un rol en BD ni un custom
-<a href=#115 id=115 data-nosnippet>115</a>    /// claim de Firebase: el backend compara el email verificado del ID Token
-<a href=#116 id=116 data-nosnippet>116</a>    /// contra esta lista y emite su JWT propio con `admin=true` solo si encaja.
+<a href=#115 id=115 data-nosnippet>115</a>    /// claim de Firebase: el backend compara el email del ID Token contra
+<a href=#116 id=116 data-nosnippet>116</a>    /// esta lista y emite su JWT propio con `admin=true` solo si encaja.
 <a href=#117 id=117 data-nosnippet>117</a>    /// Default vacio: nadie es admin.
 <a href=#118 id=118 data-nosnippet>118</a>    </span><span class="attr">#[serde(default)]
 <a href=#119 id=119 data-nosnippet>119</a>    </span><span class="kw">pub </span>admin_email_allowlist: String,

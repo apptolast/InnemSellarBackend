@@ -72,8 +72,8 @@ Si esta vacio, las notificaciones de reportes quedan deshabilitadas.
 Se lee de <code>REPORT_EMAIL_TO</code>.</p>
 </div><span id="structfield.admin_email_allowlist" class="structfield section-header"><a href="#structfield.admin_email_allowlist" class="anchor field">§</a><code>admin_email_allowlist: <a class="struct" href="https://doc.rust-lang.org/1.95.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></code></span><div class="docblock"><p>Emails administradores separados por coma.</p>
 <p>Se lee de <code>ADMIN_EMAIL_ALLOWLIST</code>. No es un rol en BD ni un custom
-claim de Firebase: el backend compara el email verificado del ID Token
-contra esta lista y emite su JWT propio con <code>admin=true</code> solo si encaja.
+claim de Firebase: el backend compara el email del ID Token contra
+esta lista y emite su JWT propio con <code>admin=true</code> solo si encaja.
 Default vacio: nadie es admin.</p>
 </div><span id="structfield.admin_web_origins" class="structfield section-header"><a href="#structfield.admin_web_origins" class="anchor field">§</a><code>admin_web_origins: <a class="struct" href="https://doc.rust-lang.org/1.95.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a></code></span><div class="docblock"><p>Origenes web permitidos para CORS, separados por coma.</p>
 <p>Se lee de <code>ADMIN_WEB_ORIGINS</code>. Deben ser origins exactos, sin slash

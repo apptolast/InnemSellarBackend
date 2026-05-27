@@ -254,330 +254,322 @@
 <a href=#254 id=254 data-nosnippet>254</a>        .buscar_usuario_por_id(token_db.id_usuario)
 <a href=#255 id=255 data-nosnippet>255</a>        .<span class="kw">await</span><span class="question-mark">?
 <a href=#256 id=256 data-nosnippet>256</a>        </span>.ok_or(AppError::Unauthorized)<span class="question-mark">?</span>;
-<a href=#257 id=257 data-nosnippet>257</a>    <span class="kw">let </span>admin = <span class="kw">if let </span><span class="prelude-val">Some</span>(email) = usuario.email.as_deref() {
-<a href=#258 id=258 data-nosnippet>258</a>        auth_service.email_en_admin_allowlist(email)
-<a href=#259 id=259 data-nosnippet>259</a>            &amp;&amp; proveedor_repo
-<a href=#260 id=260 data-nosnippet>260</a>                .tiene_email_verificado(token_db.id_usuario, email)
-<a href=#261 id=261 data-nosnippet>261</a>                .<span class="kw">await</span><span class="question-mark">?
-<a href=#262 id=262 data-nosnippet>262</a>    </span>} <span class="kw">else </span>{
-<a href=#263 id=263 data-nosnippet>263</a>        <span class="bool-val">false
-<a href=#264 id=264 data-nosnippet>264</a>    </span>};
-<a href=#265 id=265 data-nosnippet>265</a>
-<a href=#266 id=266 data-nosnippet>266</a>    <span class="comment">// Generar nuevo par de tokens manteniendo el flag.
-<a href=#267 id=267 data-nosnippet>267</a>    </span><span class="kw">let </span>access_token =
-<a href=#268 id=268 data-nosnippet>268</a>        auth_service.generar_access_token_con_flags(token_db.id_usuario, es_anonimo, admin)<span class="question-mark">?</span>;
-<a href=#269 id=269 data-nosnippet>269</a>    <span class="kw">let </span>new_refresh_raw = auth_service.generar_refresh_token();
-<a href=#270 id=270 data-nosnippet>270</a>    <span class="kw">let </span>new_refresh_hash = auth_service.hashear_refresh_token(<span class="kw-2">&amp;</span>new_refresh_raw);
-<a href=#271 id=271 data-nosnippet>271</a>
-<a href=#272 id=272 data-nosnippet>272</a>    <span class="kw">let </span>expira = (Utc::now() + Duration::days(<span class="number">30</span>)).fixed_offset();
-<a href=#273 id=273 data-nosnippet>273</a>    <span class="kw">let </span>user_agent = extraer_user_agent(req);
-<a href=#274 id=274 data-nosnippet>274</a>    auth_repo
-<a href=#275 id=275 data-nosnippet>275</a>        .guardar_refresh_token(
-<a href=#276 id=276 data-nosnippet>276</a>            token_db.id_usuario,
-<a href=#277 id=277 data-nosnippet>277</a>            <span class="kw-2">&amp;</span>new_refresh_hash,
-<a href=#278 id=278 data-nosnippet>278</a>            user_agent.as_deref(),
-<a href=#279 id=279 data-nosnippet>279</a>            expira,
-<a href=#280 id=280 data-nosnippet>280</a>        )
-<a href=#281 id=281 data-nosnippet>281</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#282 id=282 data-nosnippet>282</a>
-<a href=#283 id=283 data-nosnippet>283</a>    <span class="prelude-val">Ok</span>(Json(TokenResponse {
-<a href=#284 id=284 data-nosnippet>284</a>        access_token,
-<a href=#285 id=285 data-nosnippet>285</a>        refresh_token: new_refresh_raw,
-<a href=#286 id=286 data-nosnippet>286</a>    }))
-<a href=#287 id=287 data-nosnippet>287</a>}
-<a href=#288 id=288 data-nosnippet>288</a>
-<a href=#289 id=289 data-nosnippet>289</a><span class="doccomment">/// POST /api/v1/auth/logout — Cerrar sesion (revocar refresh token).
-<a href=#290 id=290 data-nosnippet>290</a>/// Requiere autenticacion (access token en header Authorization).
-<a href=#291 id=291 data-nosnippet>291</a>///
-<a href=#292 id=292 data-nosnippet>292</a>/// # Por que `security(("bearer_auth" = []))`
-<a href=#293 id=293 data-nosnippet>293</a>/// Esta anotacion le dice a OpenAPI que este endpoint requiere el esquema
-<a href=#294 id=294 data-nosnippet>294</a>/// de seguridad `bearer_auth` definido en main.rs (JWT Bearer token).
-<a href=#295 id=295 data-nosnippet>295</a>/// Swagger UI mostrara un candado y permitira al usuario introducir su token
-<a href=#296 id=296 data-nosnippet>296</a>/// para probar el endpoint directamente desde la documentacion.
-<a href=#297 id=297 data-nosnippet>297</a></span><span class="attr">#[endpoint(tags(<span class="string">"Auth"</span>), security((<span class="string">"bearer_auth" </span>= []</span>)))]
-<a href=#298 id=298 data-nosnippet>298</a><span class="kw">pub async fn </span>logout(
-<a href=#299 id=299 data-nosnippet>299</a>    body: JsonBody&lt;LogoutRequest&gt;,
-<a href=#300 id=300 data-nosnippet>300</a>    depot: <span class="kw-2">&amp;mut </span>Depot,
-<a href=#301 id=301 data-nosnippet>301</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;MensajeResponse&gt;, AppError&gt; {
-<a href=#302 id=302 data-nosnippet>302</a>    <span class="kw">let </span>auth_service = depot
-<a href=#303 id=303 data-nosnippet>303</a>        .obtain::&lt;AuthService&gt;()
-<a href=#304 id=304 data-nosnippet>304</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthService no disponible"</span>.into()))<span class="question-mark">?
-<a href=#305 id=305 data-nosnippet>305</a>        </span>.clone();
-<a href=#306 id=306 data-nosnippet>306</a>    <span class="kw">let </span>auth_repo = depot
-<a href=#307 id=307 data-nosnippet>307</a>        .obtain::&lt;SeaAuthRepo&gt;()
-<a href=#308 id=308 data-nosnippet>308</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthRepo no disponible"</span>.into()))<span class="question-mark">?
-<a href=#309 id=309 data-nosnippet>309</a>        </span>.clone();
+<a href=#257 id=257 data-nosnippet>257</a>    <span class="kw">let </span>admin = auth_service.es_email_admin_allowlist(usuario.email.as_deref());
+<a href=#258 id=258 data-nosnippet>258</a>
+<a href=#259 id=259 data-nosnippet>259</a>    <span class="comment">// Generar nuevo par de tokens manteniendo el flag.
+<a href=#260 id=260 data-nosnippet>260</a>    </span><span class="kw">let </span>access_token =
+<a href=#261 id=261 data-nosnippet>261</a>        auth_service.generar_access_token_con_flags(token_db.id_usuario, es_anonimo, admin)<span class="question-mark">?</span>;
+<a href=#262 id=262 data-nosnippet>262</a>    <span class="kw">let </span>new_refresh_raw = auth_service.generar_refresh_token();
+<a href=#263 id=263 data-nosnippet>263</a>    <span class="kw">let </span>new_refresh_hash = auth_service.hashear_refresh_token(<span class="kw-2">&amp;</span>new_refresh_raw);
+<a href=#264 id=264 data-nosnippet>264</a>
+<a href=#265 id=265 data-nosnippet>265</a>    <span class="kw">let </span>expira = (Utc::now() + Duration::days(<span class="number">30</span>)).fixed_offset();
+<a href=#266 id=266 data-nosnippet>266</a>    <span class="kw">let </span>user_agent = extraer_user_agent(req);
+<a href=#267 id=267 data-nosnippet>267</a>    auth_repo
+<a href=#268 id=268 data-nosnippet>268</a>        .guardar_refresh_token(
+<a href=#269 id=269 data-nosnippet>269</a>            token_db.id_usuario,
+<a href=#270 id=270 data-nosnippet>270</a>            <span class="kw-2">&amp;</span>new_refresh_hash,
+<a href=#271 id=271 data-nosnippet>271</a>            user_agent.as_deref(),
+<a href=#272 id=272 data-nosnippet>272</a>            expira,
+<a href=#273 id=273 data-nosnippet>273</a>        )
+<a href=#274 id=274 data-nosnippet>274</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#275 id=275 data-nosnippet>275</a>
+<a href=#276 id=276 data-nosnippet>276</a>    <span class="prelude-val">Ok</span>(Json(TokenResponse {
+<a href=#277 id=277 data-nosnippet>277</a>        access_token,
+<a href=#278 id=278 data-nosnippet>278</a>        refresh_token: new_refresh_raw,
+<a href=#279 id=279 data-nosnippet>279</a>    }))
+<a href=#280 id=280 data-nosnippet>280</a>}
+<a href=#281 id=281 data-nosnippet>281</a>
+<a href=#282 id=282 data-nosnippet>282</a><span class="doccomment">/// POST /api/v1/auth/logout — Cerrar sesion (revocar refresh token).
+<a href=#283 id=283 data-nosnippet>283</a>/// Requiere autenticacion (access token en header Authorization).
+<a href=#284 id=284 data-nosnippet>284</a>///
+<a href=#285 id=285 data-nosnippet>285</a>/// # Por que `security(("bearer_auth" = []))`
+<a href=#286 id=286 data-nosnippet>286</a>/// Esta anotacion le dice a OpenAPI que este endpoint requiere el esquema
+<a href=#287 id=287 data-nosnippet>287</a>/// de seguridad `bearer_auth` definido en main.rs (JWT Bearer token).
+<a href=#288 id=288 data-nosnippet>288</a>/// Swagger UI mostrara un candado y permitira al usuario introducir su token
+<a href=#289 id=289 data-nosnippet>289</a>/// para probar el endpoint directamente desde la documentacion.
+<a href=#290 id=290 data-nosnippet>290</a></span><span class="attr">#[endpoint(tags(<span class="string">"Auth"</span>), security((<span class="string">"bearer_auth" </span>= []</span>)))]
+<a href=#291 id=291 data-nosnippet>291</a><span class="kw">pub async fn </span>logout(
+<a href=#292 id=292 data-nosnippet>292</a>    body: JsonBody&lt;LogoutRequest&gt;,
+<a href=#293 id=293 data-nosnippet>293</a>    depot: <span class="kw-2">&amp;mut </span>Depot,
+<a href=#294 id=294 data-nosnippet>294</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;MensajeResponse&gt;, AppError&gt; {
+<a href=#295 id=295 data-nosnippet>295</a>    <span class="kw">let </span>auth_service = depot
+<a href=#296 id=296 data-nosnippet>296</a>        .obtain::&lt;AuthService&gt;()
+<a href=#297 id=297 data-nosnippet>297</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthService no disponible"</span>.into()))<span class="question-mark">?
+<a href=#298 id=298 data-nosnippet>298</a>        </span>.clone();
+<a href=#299 id=299 data-nosnippet>299</a>    <span class="kw">let </span>auth_repo = depot
+<a href=#300 id=300 data-nosnippet>300</a>        .obtain::&lt;SeaAuthRepo&gt;()
+<a href=#301 id=301 data-nosnippet>301</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthRepo no disponible"</span>.into()))<span class="question-mark">?
+<a href=#302 id=302 data-nosnippet>302</a>        </span>.clone();
+<a href=#303 id=303 data-nosnippet>303</a>
+<a href=#304 id=304 data-nosnippet>304</a>    <span class="comment">// Buscar el refresh token en BD y revocarlo
+<a href=#305 id=305 data-nosnippet>305</a>    </span><span class="kw">let </span>hash = auth_service.hashear_refresh_token(<span class="kw-2">&amp;</span>body.refresh_token);
+<a href=#306 id=306 data-nosnippet>306</a>    <span class="kw">let </span>token_db = auth_repo
+<a href=#307 id=307 data-nosnippet>307</a>        .buscar_refresh_token_por_hash(<span class="kw-2">&amp;</span>hash)
+<a href=#308 id=308 data-nosnippet>308</a>        .<span class="kw">await</span><span class="question-mark">?
+<a href=#309 id=309 data-nosnippet>309</a>        </span>.ok_or(AppError::Unauthorized)<span class="question-mark">?</span>;
 <a href=#310 id=310 data-nosnippet>310</a>
-<a href=#311 id=311 data-nosnippet>311</a>    <span class="comment">// Buscar el refresh token en BD y revocarlo
-<a href=#312 id=312 data-nosnippet>312</a>    </span><span class="kw">let </span>hash = auth_service.hashear_refresh_token(<span class="kw-2">&amp;</span>body.refresh_token);
-<a href=#313 id=313 data-nosnippet>313</a>    <span class="kw">let </span>token_db = auth_repo
-<a href=#314 id=314 data-nosnippet>314</a>        .buscar_refresh_token_por_hash(<span class="kw-2">&amp;</span>hash)
-<a href=#315 id=315 data-nosnippet>315</a>        .<span class="kw">await</span><span class="question-mark">?
-<a href=#316 id=316 data-nosnippet>316</a>        </span>.ok_or(AppError::Unauthorized)<span class="question-mark">?</span>;
+<a href=#311 id=311 data-nosnippet>311</a>    auth_repo.revocar_refresh_token(token_db.id).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#312 id=312 data-nosnippet>312</a>
+<a href=#313 id=313 data-nosnippet>313</a>    <span class="prelude-val">Ok</span>(Json(MensajeResponse {
+<a href=#314 id=314 data-nosnippet>314</a>        mensaje: <span class="string">"Sesion cerrada"</span>.into(),
+<a href=#315 id=315 data-nosnippet>315</a>    }))
+<a href=#316 id=316 data-nosnippet>316</a>}
 <a href=#317 id=317 data-nosnippet>317</a>
-<a href=#318 id=318 data-nosnippet>318</a>    auth_repo.revocar_refresh_token(token_db.id).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#318 id=318 data-nosnippet>318</a><span class="comment">// ─── Login con Firebase (handshake unico para todos los providers) ─
 <a href=#319 id=319 data-nosnippet>319</a>
-<a href=#320 id=320 data-nosnippet>320</a>    <span class="prelude-val">Ok</span>(Json(MensajeResponse {
-<a href=#321 id=321 data-nosnippet>321</a>        mensaje: <span class="string">"Sesion cerrada"</span>.into(),
-<a href=#322 id=322 data-nosnippet>322</a>    }))
-<a href=#323 id=323 data-nosnippet>323</a>}
-<a href=#324 id=324 data-nosnippet>324</a>
-<a href=#325 id=325 data-nosnippet>325</a><span class="comment">// ─── Login con Firebase (handshake unico para todos los providers) ─
-<a href=#326 id=326 data-nosnippet>326</a>
-<a href=#327 id=327 data-nosnippet>327</a></span><span class="doccomment">/// POST /api/v1/auth/firebase — Handshake unico con Firebase ID Token.
-<a href=#328 id=328 data-nosnippet>328</a>///
-<a href=#329 id=329 data-nosnippet>329</a>/// La app cliente delega TODO el login en FirebaseAuth (Google, Apple,
-<a href=#330 id=330 data-nosnippet>330</a>/// email/password, anonimo) y entrega aqui el ID Token JWT firmado por
-<a href=#331 id=331 data-nosnippet>331</a>/// Google con RS256. El backend lo verifica contra los JWKS de Google,
-<a href=#332 id=332 data-nosnippet>332</a>/// tipa el `sign_in_provider` con la whitelist `SignInProvider`, y
-<a href=#333 id=333 data-nosnippet>333</a>/// resuelve un usuario segun el caso:
-<a href=#334 id=334 data-nosnippet>334</a>///
-<a href=#335 id=335 data-nosnippet>335</a>///   - **`google.com` / `apple.com` / `password`**: si la identidad ya
-<a href=#336 id=336 data-nosnippet>336</a>///     existe (mismo `firebase_uid` y mismo provider) la reusa y refresca
-<a href=#337 id=337 data-nosnippet>337</a>///     su snapshot JSONB. Si no, intenta auto-link por email cuando
-<a href=#338 id=338 data-nosnippet>338</a>///     `email_verified=true` (asi un usuario legacy con `hash_contrasena`
-<a href=#339 id=339 data-nosnippet>339</a>///     se enlaza automaticamente; Apple siempre marca el email como
-<a href=#340 id=340 data-nosnippet>340</a>///     verificado, incluso para relays `@privaterelay.appleid.com`). Si
-<a href=#341 id=341 data-nosnippet>341</a>///     el email coincide pero NO esta verificado, devuelve 409
-<a href=#342 id=342 data-nosnippet>342</a>///     (anti-takeover). Si nada coincide, crea un usuario OAuth nuevo.
-<a href=#343 id=343 data-nosnippet>343</a>///   - **`anonymous`**: crea un usuario sin email/hash y guarda el
-<a href=#344 id=344 data-nosnippet>344</a>///     `firebase_uid` como `identificador_proveedor`. El JWT propio
-<a href=#345 id=345 data-nosnippet>345</a>///     emitido lleva `anonimo=true` para que el cliente sepa que falta
-<a href=#346 id=346 data-nosnippet>346</a>///     completar el registro.
-<a href=#347 id=347 data-nosnippet>347</a>///   - **Lookup defensivo (`linkWithCredential` en cliente)**: si el
-<a href=#348 id=348 data-nosnippet>348</a>///     `firebase_uid` ya existe en OTRO provider, reusa el mismo
-<a href=#349 id=349 data-nosnippet>349</a>///     `id_usuario` y solo anade la nueva fila de identidad. Evita
-<a href=#350 id=350 data-nosnippet>350</a>///     duplicar usuarios cuando un anonimo se actualiza a Google/Apple/
-<a href=#351 id=351 data-nosnippet>351</a>///     password conservando su uid.
-<a href=#352 id=352 data-nosnippet>352</a>///
-<a href=#353 id=353 data-nosnippet>353</a>/// # Codigos de error
-<a href=#354 id=354 data-nosnippet>354</a>/// - 400: `id_token` vacio o `sign_in_provider` no soportado todavia
-<a href=#355 id=355 data-nosnippet>355</a>///   (phone, microsoft.com, github.com, etc.).
-<a href=#356 id=356 data-nosnippet>356</a>/// - 401: token invalido (firma, expirado, audience, issuer, kid desconocido).
-<a href=#357 id=357 data-nosnippet>357</a>/// - 409: account linking bloqueado por `email_verified=false`.
-<a href=#358 id=358 data-nosnippet>358</a>/// - 500: fallo al descargar JWKS de Google o error de BD.
-<a href=#359 id=359 data-nosnippet>359</a></span><span class="attr">#[endpoint(tags(<span class="string">"Auth"</span>))]
-<a href=#360 id=360 data-nosnippet>360</a></span><span class="kw">pub async fn </span>login_firebase(
-<a href=#361 id=361 data-nosnippet>361</a>    req: <span class="kw-2">&amp;mut </span>Request,
-<a href=#362 id=362 data-nosnippet>362</a>    body: JsonBody&lt;FirebaseLoginRequest&gt;,
-<a href=#363 id=363 data-nosnippet>363</a>    depot: <span class="kw-2">&amp;mut </span>Depot,
-<a href=#364 id=364 data-nosnippet>364</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;AuthResponse&gt;, AppError&gt; {
-<a href=#365 id=365 data-nosnippet>365</a>    <span class="comment">// ── 1. Extraer servicios y repos del Depot ──
-<a href=#366 id=366 data-nosnippet>366</a>    </span><span class="kw">let </span>auth_service = depot
-<a href=#367 id=367 data-nosnippet>367</a>        .obtain::&lt;AuthService&gt;()
-<a href=#368 id=368 data-nosnippet>368</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthService no disponible"</span>.into()))<span class="question-mark">?
-<a href=#369 id=369 data-nosnippet>369</a>        </span>.clone();
-<a href=#370 id=370 data-nosnippet>370</a>    <span class="kw">let </span>firebase = depot
-<a href=#371 id=371 data-nosnippet>371</a>        .obtain::&lt;FirebaseVerifier&gt;()
-<a href=#372 id=372 data-nosnippet>372</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"FirebaseVerifier no disponible"</span>.into()))<span class="question-mark">?
-<a href=#373 id=373 data-nosnippet>373</a>        </span>.clone();
-<a href=#374 id=374 data-nosnippet>374</a>    <span class="kw">let </span>auth_repo = depot
-<a href=#375 id=375 data-nosnippet>375</a>        .obtain::&lt;SeaAuthRepo&gt;()
-<a href=#376 id=376 data-nosnippet>376</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthRepo no disponible"</span>.into()))<span class="question-mark">?
-<a href=#377 id=377 data-nosnippet>377</a>        </span>.clone();
-<a href=#378 id=378 data-nosnippet>378</a>    <span class="kw">let </span>proveedor_repo = depot
-<a href=#379 id=379 data-nosnippet>379</a>        .obtain::&lt;SeaProveedorAutenticacionRepo&gt;()
-<a href=#380 id=380 data-nosnippet>380</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"ProveedorAutenticacionRepo no disponible"</span>.into()))<span class="question-mark">?
-<a href=#381 id=381 data-nosnippet>381</a>        </span>.clone();
-<a href=#382 id=382 data-nosnippet>382</a>
-<a href=#383 id=383 data-nosnippet>383</a>    <span class="comment">// ── 2. Validar input minimo ──
-<a href=#384 id=384 data-nosnippet>384</a>    </span><span class="kw">if </span>body.id_token.trim().is_empty() {
-<a href=#385 id=385 data-nosnippet>385</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(AppError::BadRequest(<span class="string">"id_token es obligatorio"</span>.into()));
-<a href=#386 id=386 data-nosnippet>386</a>    }
-<a href=#387 id=387 data-nosnippet>387</a>
-<a href=#388 id=388 data-nosnippet>388</a>    <span class="comment">// ── 3. Verificar el ID Token de Firebase (criptografia + claims) ──
-<a href=#389 id=389 data-nosnippet>389</a>    </span><span class="kw">let </span>claims = firebase.verify(<span class="kw-2">&amp;</span>body.id_token).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#390 id=390 data-nosnippet>390</a>
-<a href=#391 id=391 data-nosnippet>391</a>    <span class="comment">// ── 4. Tipar el provider via whitelist (rechaza phone/microsoft/etc. con 400) ──
-<a href=#392 id=392 data-nosnippet>392</a>    </span><span class="kw">let </span>provider = claims.provider().map_err(|p| {
-<a href=#393 id=393 data-nosnippet>393</a>        <span class="macro">tracing::warn!</span>(provider = %p, <span class="string">"sign_in_provider de Firebase no soportado todavia"</span>);
-<a href=#394 id=394 data-nosnippet>394</a>        AppError::BadRequest(<span class="macro">format!</span>(<span class="string">"proveedor `{p}` no soportado todavia"</span>))
-<a href=#395 id=395 data-nosnippet>395</a>    })<span class="question-mark">?</span>;
-<a href=#396 id=396 data-nosnippet>396</a>    <span class="kw">let </span>anonimo = <span class="macro">matches!</span>(provider, SignInProvider::Anonymous);
-<a href=#397 id=397 data-nosnippet>397</a>    <span class="kw">let </span>admin =
-<a href=#398 id=398 data-nosnippet>398</a>        auth_service.es_email_admin_verificado(claims.email.as_deref(), claims.email_verified);
-<a href=#399 id=399 data-nosnippet>399</a>
-<a href=#400 id=400 data-nosnippet>400</a>    <span class="comment">// ── 5. Resolver el usuario (upsert + account-linking + lookup defensivo) ──
-<a href=#401 id=401 data-nosnippet>401</a>    </span><span class="kw">let </span>usuario = upsert_usuario_firebase(<span class="kw-2">&amp;</span>auth_repo, <span class="kw-2">&amp;</span>proveedor_repo, <span class="kw-2">&amp;</span>claims, provider).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#402 id=402 data-nosnippet>402</a>
-<a href=#403 id=403 data-nosnippet>403</a>    <span class="comment">// ── 6. Ultimo login + enriquecer perfil con name/picture (solo no-anonimos) ──
-<a href=#404 id=404 data-nosnippet>404</a>    </span>auth_repo.actualizar_ultimo_login(usuario.id).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#405 id=405 data-nosnippet>405</a>    <span class="kw">if </span>!anonimo {
-<a href=#406 id=406 data-nosnippet>406</a>        auth_repo
-<a href=#407 id=407 data-nosnippet>407</a>            .enriquecer_perfil_si_vacio(
-<a href=#408 id=408 data-nosnippet>408</a>                usuario.id,
-<a href=#409 id=409 data-nosnippet>409</a>                claims.name.as_deref(),
-<a href=#410 id=410 data-nosnippet>410</a>                claims.picture.as_deref(),
-<a href=#411 id=411 data-nosnippet>411</a>            )
-<a href=#412 id=412 data-nosnippet>412</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#413 id=413 data-nosnippet>413</a>    }
-<a href=#414 id=414 data-nosnippet>414</a>
-<a href=#415 id=415 data-nosnippet>415</a>    <span class="comment">// ── 7. Emitir tokens propios (HS256, flag anonimo derivado del provider) ──
-<a href=#416 id=416 data-nosnippet>416</a>    </span><span class="kw">let </span>access_token = auth_service.generar_access_token_con_flags(usuario.id, anonimo, admin)<span class="question-mark">?</span>;
-<a href=#417 id=417 data-nosnippet>417</a>    <span class="kw">let </span>refresh_raw = auth_service.generar_refresh_token();
-<a href=#418 id=418 data-nosnippet>418</a>    <span class="kw">let </span>refresh_hash = auth_service.hashear_refresh_token(<span class="kw-2">&amp;</span>refresh_raw);
-<a href=#419 id=419 data-nosnippet>419</a>    <span class="kw">let </span>expira = (Utc::now() + Duration::days(<span class="number">30</span>)).fixed_offset();
-<a href=#420 id=420 data-nosnippet>420</a>    <span class="kw">let </span>user_agent = extraer_user_agent(req);
-<a href=#421 id=421 data-nosnippet>421</a>    auth_repo
-<a href=#422 id=422 data-nosnippet>422</a>        .guardar_refresh_token(usuario.id, <span class="kw-2">&amp;</span>refresh_hash, user_agent.as_deref(), expira)
-<a href=#423 id=423 data-nosnippet>423</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#424 id=424 data-nosnippet>424</a>
-<a href=#425 id=425 data-nosnippet>425</a>    <span class="comment">// ── 8. Recargar el usuario (puede haber cambiado nombre_visible / url_avatar) ──
-<a href=#426 id=426 data-nosnippet>426</a>    </span><span class="kw">let </span>usuario_final = auth_repo
-<a href=#427 id=427 data-nosnippet>427</a>        .buscar_usuario_por_id(usuario.id)
-<a href=#428 id=428 data-nosnippet>428</a>        .<span class="kw">await</span><span class="question-mark">?
-<a href=#429 id=429 data-nosnippet>429</a>        </span>.unwrap_or(usuario);
-<a href=#430 id=430 data-nosnippet>430</a>
-<a href=#431 id=431 data-nosnippet>431</a>    <span class="prelude-val">Ok</span>(Json(AuthResponse {
-<a href=#432 id=432 data-nosnippet>432</a>        access_token,
-<a href=#433 id=433 data-nosnippet>433</a>        refresh_token: refresh_raw,
-<a href=#434 id=434 data-nosnippet>434</a>        usuario: construir_usuario_response(
-<a href=#435 id=435 data-nosnippet>435</a>            <span class="kw-2">&amp;</span>usuario_final,
-<a href=#436 id=436 data-nosnippet>436</a>            provider.as_str(),
-<a href=#437 id=437 data-nosnippet>437</a>            anonimo,
-<a href=#438 id=438 data-nosnippet>438</a>            claims.email_verified,
-<a href=#439 id=439 data-nosnippet>439</a>            admin,
-<a href=#440 id=440 data-nosnippet>440</a>        ),
-<a href=#441 id=441 data-nosnippet>441</a>    }))
-<a href=#442 id=442 data-nosnippet>442</a>}
-<a href=#443 id=443 data-nosnippet>443</a>
-<a href=#444 id=444 data-nosnippet>444</a><span class="doccomment">/// Resuelve a que usuario corresponde un login Firebase, creando o
-<a href=#445 id=445 data-nosnippet>445</a>/// vinculando segun haga falta.
-<a href=#446 id=446 data-nosnippet>446</a>///
-<a href=#447 id=447 data-nosnippet>447</a>/// Extraida del handler para mantener el flujo principal legible.
-<a href=#448 id=448 data-nosnippet>448</a>/// Cubre 5 casos en orden:
-<a href=#449 id=449 data-nosnippet>449</a>///   1. Identidad EXACTA `(provider, firebase_uid)` ya existente -&gt; reusa.
-<a href=#450 id=450 data-nosnippet>450</a>///   2. `firebase_uid` existe en OTRO provider (`linkWithCredential`) -&gt; reusa
-<a href=#451 id=451 data-nosnippet>451</a>///      `id_usuario` y solo anade la nueva fila de identidad.
-<a href=#452 id=452 data-nosnippet>452</a>///   3. Anonymous nuevo -&gt; crea usuario sin email/hash + identidad.
-<a href=#453 id=453 data-nosnippet>453</a>///   4. password/google.com/apple.com con email coincidente y verificado -&gt;
-<a href=#454 id=454 data-nosnippet>454</a>///      auto-link. Apple siempre marca `email_verified=true` (incluso para
-<a href=#455 id=455 data-nosnippet>455</a>///      relays `@privaterelay.appleid.com`), asi que cae aqui sin friccion.
-<a href=#456 id=456 data-nosnippet>456</a>///      Si el email NO esta verificado -&gt; 409 (anti-takeover).
-<a href=#457 id=457 data-nosnippet>457</a>///   5. password/google.com/apple.com sin match -&gt; crea usuario OAuth nuevo
-<a href=#458 id=458 data-nosnippet>458</a>///      + identidad.
-<a href=#459 id=459 data-nosnippet>459</a></span><span class="kw">async fn </span>upsert_usuario_firebase(
-<a href=#460 id=460 data-nosnippet>460</a>    auth_repo: <span class="kw-2">&amp;</span>SeaAuthRepo,
-<a href=#461 id=461 data-nosnippet>461</a>    proveedor_repo: <span class="kw-2">&amp;</span>SeaProveedorAutenticacionRepo,
-<a href=#462 id=462 data-nosnippet>462</a>    claims: <span class="kw-2">&amp;</span>FirebaseClaims,
-<a href=#463 id=463 data-nosnippet>463</a>    provider: SignInProvider,
-<a href=#464 id=464 data-nosnippet>464</a>) -&gt; <span class="prelude-ty">Result</span>&lt;usuario::Model, AppError&gt; {
-<a href=#465 id=465 data-nosnippet>465</a>    <span class="kw">let </span>provider_str = provider.as_str();
-<a href=#466 id=466 data-nosnippet>466</a>    <span class="kw">let </span>datos = construir_datos_proveedor_firebase(claims);
-<a href=#467 id=467 data-nosnippet>467</a>
-<a href=#468 id=468 data-nosnippet>468</a>    <span class="comment">// 1. Identidad EXACTA (provider, sub) ya existe -&gt; refresca y devuelve.
-<a href=#469 id=469 data-nosnippet>469</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(prov) = proveedor_repo
-<a href=#470 id=470 data-nosnippet>470</a>        .buscar_por_proveedor_e_identificador(provider_str, <span class="kw-2">&amp;</span>claims.sub)
-<a href=#471 id=471 data-nosnippet>471</a>        .<span class="kw">await</span><span class="question-mark">?
-<a href=#472 id=472 data-nosnippet>472</a>    </span>{
-<a href=#473 id=473 data-nosnippet>473</a>        proveedor_repo
-<a href=#474 id=474 data-nosnippet>474</a>            .actualizar_datos(prov.id, claims.email.as_deref(), <span class="prelude-val">Some</span>(datos))
-<a href=#475 id=475 data-nosnippet>475</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#476 id=476 data-nosnippet>476</a>        <span class="kw">return </span>cargar_usuario_obligatorio(auth_repo, prov.id_usuario).<span class="kw">await</span>;
-<a href=#477 id=477 data-nosnippet>477</a>    }
-<a href=#478 id=478 data-nosnippet>478</a>
-<a href=#479 id=479 data-nosnippet>479</a>    <span class="comment">// 2. Lookup defensivo: el mismo `sub` ya existe en OTRO provider.
-<a href=#480 id=480 data-nosnippet>480</a>    //    Caso: usuario anonimo que hace `linkWithCredential` en el cliente y
-<a href=#481 id=481 data-nosnippet>481</a>    //    conserva su firebase_uid pero cambia de provider. Reusamos el
-<a href=#482 id=482 data-nosnippet>482</a>    //    `id_usuario` y solo anadimos la nueva fila de identidad para no
-<a href=#483 id=483 data-nosnippet>483</a>    //    crear un usuario duplicado.
-<a href=#484 id=484 data-nosnippet>484</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(prov) = proveedor_repo
-<a href=#485 id=485 data-nosnippet>485</a>        .buscar_por_firebase_uid_cualquier_provider(<span class="kw-2">&amp;</span>claims.sub)
-<a href=#486 id=486 data-nosnippet>486</a>        .<span class="kw">await</span><span class="question-mark">?
-<a href=#487 id=487 data-nosnippet>487</a>    </span>{
-<a href=#488 id=488 data-nosnippet>488</a>        <span class="macro">tracing::info!</span>(
-<a href=#489 id=489 data-nosnippet>489</a>            firebase_uid = %claims.sub,
-<a href=#490 id=490 data-nosnippet>490</a>            provider_existente = %prov.proveedor.as_deref().unwrap_or(<span class="string">"(null)"</span>),
-<a href=#491 id=491 data-nosnippet>491</a>            provider_nuevo = %provider_str,
-<a href=#492 id=492 data-nosnippet>492</a>            <span class="string">"firebase_uid existente en otro provider, anadiendo nueva identidad al mismo usuario"
-<a href=#493 id=493 data-nosnippet>493</a>        </span>);
-<a href=#494 id=494 data-nosnippet>494</a>        crear_proveedor_identidad(proveedor_repo, prov.id_usuario, provider_str, claims, datos)
-<a href=#495 id=495 data-nosnippet>495</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#496 id=496 data-nosnippet>496</a>        <span class="kw">return </span>cargar_usuario_obligatorio(auth_repo, prov.id_usuario).<span class="kw">await</span>;
-<a href=#497 id=497 data-nosnippet>497</a>    }
-<a href=#498 id=498 data-nosnippet>498</a>
-<a href=#499 id=499 data-nosnippet>499</a>    <span class="comment">// 3. Anonymous nuevo: crea usuario sin email/hash, fila con identificador=firebase_uid.
-<a href=#500 id=500 data-nosnippet>500</a>    </span><span class="kw">if </span><span class="macro">matches!</span>(provider, SignInProvider::Anonymous) {
-<a href=#501 id=501 data-nosnippet>501</a>        <span class="kw">let </span>nuevo = auth_repo.crear_usuario_anonimo().<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#502 id=502 data-nosnippet>502</a>        crear_proveedor_identidad(proveedor_repo, nuevo.id, provider_str, claims, datos).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#503 id=503 data-nosnippet>503</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(nuevo);
-<a href=#504 id=504 data-nosnippet>504</a>    }
-<a href=#505 id=505 data-nosnippet>505</a>
-<a href=#506 id=506 data-nosnippet>506</a>    <span class="comment">// 4. password/google.com/apple.com con email coincidente -&gt; auto-link si
-<a href=#507 id=507 data-nosnippet>507</a>    //    email_verified=true. Asi un usuario legacy con `hash_contrasena` se
-<a href=#508 id=508 data-nosnippet>508</a>    //    enlaza automaticamente a su nueva identidad Firebase sin intervencion
-<a href=#509 id=509 data-nosnippet>509</a>    //    manual. Apple siempre propaga email_verified=true (incluso emails
-<a href=#510 id=510 data-nosnippet>510</a>    //    relay), por lo que tambien cae aqui sin friccion.
-<a href=#511 id=511 data-nosnippet>511</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(email) = claims.email.as_deref()
-<a href=#512 id=512 data-nosnippet>512</a>        &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(usuario_existente) = auth_repo.buscar_por_email(email).<span class="kw">await</span><span class="question-mark">?
-<a href=#513 id=513 data-nosnippet>513</a>    </span>{
-<a href=#514 id=514 data-nosnippet>514</a>        <span class="comment">// Politica: sin verified=true un atacante podria registrar un
-<a href=#515 id=515 data-nosnippet>515</a>        // proveedor OAuth con un email ajeno y apoderarse de la cuenta local.
-<a href=#516 id=516 data-nosnippet>516</a>        </span><span class="kw">if </span>claims.email_verified != <span class="prelude-val">Some</span>(<span class="bool-val">true</span>) {
-<a href=#517 id=517 data-nosnippet>517</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(AppError::Conflict(
-<a href=#518 id=518 data-nosnippet>518</a>                <span class="string">"ya existe una cuenta con este email; verifica el email en tu \
-<a href=#519 id=519 data-nosnippet>519</a>                 proveedor y reintenta para vincular automaticamente"
-<a href=#520 id=520 data-nosnippet>520</a>                    </span>.into(),
-<a href=#521 id=521 data-nosnippet>521</a>            ));
-<a href=#522 id=522 data-nosnippet>522</a>        }
-<a href=#523 id=523 data-nosnippet>523</a>        crear_proveedor_identidad(
-<a href=#524 id=524 data-nosnippet>524</a>            proveedor_repo,
-<a href=#525 id=525 data-nosnippet>525</a>            usuario_existente.id,
-<a href=#526 id=526 data-nosnippet>526</a>            provider_str,
-<a href=#527 id=527 data-nosnippet>527</a>            claims,
-<a href=#528 id=528 data-nosnippet>528</a>            datos,
-<a href=#529 id=529 data-nosnippet>529</a>        )
-<a href=#530 id=530 data-nosnippet>530</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#531 id=531 data-nosnippet>531</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(usuario_existente);
-<a href=#532 id=532 data-nosnippet>532</a>    }
-<a href=#533 id=533 data-nosnippet>533</a>
-<a href=#534 id=534 data-nosnippet>534</a>    <span class="comment">// 5. password/google.com/apple.com sin match previo -&gt; usuario OAuth nuevo + identidad.
-<a href=#535 id=535 data-nosnippet>535</a>    </span><span class="kw">let </span>nuevo = auth_repo
-<a href=#536 id=536 data-nosnippet>536</a>        .crear_usuario_oauth(
-<a href=#537 id=537 data-nosnippet>537</a>            claims.email.as_deref(),
-<a href=#538 id=538 data-nosnippet>538</a>            claims.name.as_deref(),
-<a href=#539 id=539 data-nosnippet>539</a>            claims.picture.as_deref(),
-<a href=#540 id=540 data-nosnippet>540</a>        )
-<a href=#541 id=541 data-nosnippet>541</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#542 id=542 data-nosnippet>542</a>    crear_proveedor_identidad(proveedor_repo, nuevo.id, provider_str, claims, datos).<span class="kw">await</span><span class="question-mark">?</span>;
-<a href=#543 id=543 data-nosnippet>543</a>    <span class="prelude-val">Ok</span>(nuevo)
-<a href=#544 id=544 data-nosnippet>544</a>}
-<a href=#545 id=545 data-nosnippet>545</a>
-<a href=#546 id=546 data-nosnippet>546</a><span class="doccomment">/// Inserta una fila en `proveedores_autenticacion` que representa la
-<a href=#547 id=547 data-nosnippet>547</a>/// identidad Firebase de un usuario en un provider concreto.
-<a href=#548 id=548 data-nosnippet>548</a>///
-<a href=#549 id=549 data-nosnippet>549</a>/// `provider_str` es el literal `sign_in_provider` (ya validado contra
-<a href=#550 id=550 data-nosnippet>550</a>/// la whitelist tipada `SignInProvider`); ej: `"google.com"`, `"password"`,
-<a href=#551 id=551 data-nosnippet>551</a>/// `"anonymous"`. Se guarda en la columna `proveedor`, mientras que
-<a href=#552 id=552 data-nosnippet>552</a>/// `claims.sub` (el `firebase_uid`) va a `identificador_proveedor`.
-<a href=#553 id=553 data-nosnippet>553</a></span><span class="kw">async fn </span>crear_proveedor_identidad(
-<a href=#554 id=554 data-nosnippet>554</a>    proveedor_repo: <span class="kw-2">&amp;</span>SeaProveedorAutenticacionRepo,
-<a href=#555 id=555 data-nosnippet>555</a>    id_usuario: Uuid,
-<a href=#556 id=556 data-nosnippet>556</a>    provider_str: <span class="kw-2">&amp;</span>str,
-<a href=#557 id=557 data-nosnippet>557</a>    claims: <span class="kw-2">&amp;</span>FirebaseClaims,
-<a href=#558 id=558 data-nosnippet>558</a>    datos: serde_json::Value,
-<a href=#559 id=559 data-nosnippet>559</a>) -&gt; <span class="prelude-ty">Result</span>&lt;proveedor_autenticacion::Model, AppError&gt; {
-<a href=#560 id=560 data-nosnippet>560</a>    proveedor_repo
-<a href=#561 id=561 data-nosnippet>561</a>        .crear(
-<a href=#562 id=562 data-nosnippet>562</a>            id_usuario,
-<a href=#563 id=563 data-nosnippet>563</a>            provider_str,
-<a href=#564 id=564 data-nosnippet>564</a>            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>claims.sub),
-<a href=#565 id=565 data-nosnippet>565</a>            claims.email.as_deref(),
-<a href=#566 id=566 data-nosnippet>566</a>            <span class="prelude-val">Some</span>(datos),
-<a href=#567 id=567 data-nosnippet>567</a>        )
-<a href=#568 id=568 data-nosnippet>568</a>        .<span class="kw">await
-<a href=#569 id=569 data-nosnippet>569</a></span>}
-<a href=#570 id=570 data-nosnippet>570</a>
-<a href=#571 id=571 data-nosnippet>571</a><span class="doccomment">/// Carga un usuario por id devolviendo `Internal` si no existe — protege
-<a href=#572 id=572 data-nosnippet>572</a>/// contra inconsistencias: si una fila de `proveedores_autenticacion`
-<a href=#573 id=573 data-nosnippet>573</a>/// apunta a un usuario que ya no existe, es un bug, no un 401.
-<a href=#574 id=574 data-nosnippet>574</a></span><span class="kw">async fn </span>cargar_usuario_obligatorio(
-<a href=#575 id=575 data-nosnippet>575</a>    auth_repo: <span class="kw-2">&amp;</span>SeaAuthRepo,
-<a href=#576 id=576 data-nosnippet>576</a>    id: Uuid,
-<a href=#577 id=577 data-nosnippet>577</a>) -&gt; <span class="prelude-ty">Result</span>&lt;usuario::Model, AppError&gt; {
-<a href=#578 id=578 data-nosnippet>578</a>    auth_repo
-<a href=#579 id=579 data-nosnippet>579</a>        .buscar_usuario_por_id(id)
-<a href=#580 id=580 data-nosnippet>580</a>        .<span class="kw">await</span><span class="question-mark">?
-<a href=#581 id=581 data-nosnippet>581</a>        </span>.ok_or_else(|| AppError::Internal(<span class="macro">format!</span>(<span class="string">"usuario {id} referenciado pero inexistente"</span>)))
-<a href=#582 id=582 data-nosnippet>582</a>}
+<a href=#320 id=320 data-nosnippet>320</a></span><span class="doccomment">/// POST /api/v1/auth/firebase — Handshake unico con Firebase ID Token.
+<a href=#321 id=321 data-nosnippet>321</a>///
+<a href=#322 id=322 data-nosnippet>322</a>/// La app cliente delega TODO el login en FirebaseAuth (Google, Apple,
+<a href=#323 id=323 data-nosnippet>323</a>/// email/password, anonimo) y entrega aqui el ID Token JWT firmado por
+<a href=#324 id=324 data-nosnippet>324</a>/// Google con RS256. El backend lo verifica contra los JWKS de Google,
+<a href=#325 id=325 data-nosnippet>325</a>/// tipa el `sign_in_provider` con la whitelist `SignInProvider`, y
+<a href=#326 id=326 data-nosnippet>326</a>/// resuelve un usuario segun el caso:
+<a href=#327 id=327 data-nosnippet>327</a>///
+<a href=#328 id=328 data-nosnippet>328</a>///   - **`google.com` / `apple.com` / `password`**: si la identidad ya
+<a href=#329 id=329 data-nosnippet>329</a>///     existe (mismo `firebase_uid` y mismo provider) la reusa y refresca
+<a href=#330 id=330 data-nosnippet>330</a>///     su snapshot JSONB. Si no, intenta auto-link por email cuando
+<a href=#331 id=331 data-nosnippet>331</a>///     `email_verified=true` (asi un usuario legacy con `hash_contrasena`
+<a href=#332 id=332 data-nosnippet>332</a>///     se enlaza automaticamente; Apple siempre marca el email como
+<a href=#333 id=333 data-nosnippet>333</a>///     verificado, incluso para relays `@privaterelay.appleid.com`). Si
+<a href=#334 id=334 data-nosnippet>334</a>///     el email coincide pero NO esta verificado, devuelve 409
+<a href=#335 id=335 data-nosnippet>335</a>///     (anti-takeover). Si nada coincide, crea un usuario OAuth nuevo.
+<a href=#336 id=336 data-nosnippet>336</a>///   - **`anonymous`**: crea un usuario sin email/hash y guarda el
+<a href=#337 id=337 data-nosnippet>337</a>///     `firebase_uid` como `identificador_proveedor`. El JWT propio
+<a href=#338 id=338 data-nosnippet>338</a>///     emitido lleva `anonimo=true` para que el cliente sepa que falta
+<a href=#339 id=339 data-nosnippet>339</a>///     completar el registro.
+<a href=#340 id=340 data-nosnippet>340</a>///   - **Lookup defensivo (`linkWithCredential` en cliente)**: si el
+<a href=#341 id=341 data-nosnippet>341</a>///     `firebase_uid` ya existe en OTRO provider, reusa el mismo
+<a href=#342 id=342 data-nosnippet>342</a>///     `id_usuario` y solo anade la nueva fila de identidad. Evita
+<a href=#343 id=343 data-nosnippet>343</a>///     duplicar usuarios cuando un anonimo se actualiza a Google/Apple/
+<a href=#344 id=344 data-nosnippet>344</a>///     password conservando su uid.
+<a href=#345 id=345 data-nosnippet>345</a>///
+<a href=#346 id=346 data-nosnippet>346</a>/// # Codigos de error
+<a href=#347 id=347 data-nosnippet>347</a>/// - 400: `id_token` vacio o `sign_in_provider` no soportado todavia
+<a href=#348 id=348 data-nosnippet>348</a>///   (phone, microsoft.com, github.com, etc.).
+<a href=#349 id=349 data-nosnippet>349</a>/// - 401: token invalido (firma, expirado, audience, issuer, kid desconocido).
+<a href=#350 id=350 data-nosnippet>350</a>/// - 409: account linking bloqueado por `email_verified=false`.
+<a href=#351 id=351 data-nosnippet>351</a>/// - 500: fallo al descargar JWKS de Google o error de BD.
+<a href=#352 id=352 data-nosnippet>352</a></span><span class="attr">#[endpoint(tags(<span class="string">"Auth"</span>))]
+<a href=#353 id=353 data-nosnippet>353</a></span><span class="kw">pub async fn </span>login_firebase(
+<a href=#354 id=354 data-nosnippet>354</a>    req: <span class="kw-2">&amp;mut </span>Request,
+<a href=#355 id=355 data-nosnippet>355</a>    body: JsonBody&lt;FirebaseLoginRequest&gt;,
+<a href=#356 id=356 data-nosnippet>356</a>    depot: <span class="kw-2">&amp;mut </span>Depot,
+<a href=#357 id=357 data-nosnippet>357</a>) -&gt; <span class="prelude-ty">Result</span>&lt;Json&lt;AuthResponse&gt;, AppError&gt; {
+<a href=#358 id=358 data-nosnippet>358</a>    <span class="comment">// ── 1. Extraer servicios y repos del Depot ──
+<a href=#359 id=359 data-nosnippet>359</a>    </span><span class="kw">let </span>auth_service = depot
+<a href=#360 id=360 data-nosnippet>360</a>        .obtain::&lt;AuthService&gt;()
+<a href=#361 id=361 data-nosnippet>361</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthService no disponible"</span>.into()))<span class="question-mark">?
+<a href=#362 id=362 data-nosnippet>362</a>        </span>.clone();
+<a href=#363 id=363 data-nosnippet>363</a>    <span class="kw">let </span>firebase = depot
+<a href=#364 id=364 data-nosnippet>364</a>        .obtain::&lt;FirebaseVerifier&gt;()
+<a href=#365 id=365 data-nosnippet>365</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"FirebaseVerifier no disponible"</span>.into()))<span class="question-mark">?
+<a href=#366 id=366 data-nosnippet>366</a>        </span>.clone();
+<a href=#367 id=367 data-nosnippet>367</a>    <span class="kw">let </span>auth_repo = depot
+<a href=#368 id=368 data-nosnippet>368</a>        .obtain::&lt;SeaAuthRepo&gt;()
+<a href=#369 id=369 data-nosnippet>369</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"AuthRepo no disponible"</span>.into()))<span class="question-mark">?
+<a href=#370 id=370 data-nosnippet>370</a>        </span>.clone();
+<a href=#371 id=371 data-nosnippet>371</a>    <span class="kw">let </span>proveedor_repo = depot
+<a href=#372 id=372 data-nosnippet>372</a>        .obtain::&lt;SeaProveedorAutenticacionRepo&gt;()
+<a href=#373 id=373 data-nosnippet>373</a>        .map_err(|<span class="kw">_</span>| AppError::Internal(<span class="string">"ProveedorAutenticacionRepo no disponible"</span>.into()))<span class="question-mark">?
+<a href=#374 id=374 data-nosnippet>374</a>        </span>.clone();
+<a href=#375 id=375 data-nosnippet>375</a>
+<a href=#376 id=376 data-nosnippet>376</a>    <span class="comment">// ── 2. Validar input minimo ──
+<a href=#377 id=377 data-nosnippet>377</a>    </span><span class="kw">if </span>body.id_token.trim().is_empty() {
+<a href=#378 id=378 data-nosnippet>378</a>        <span class="kw">return </span><span class="prelude-val">Err</span>(AppError::BadRequest(<span class="string">"id_token es obligatorio"</span>.into()));
+<a href=#379 id=379 data-nosnippet>379</a>    }
+<a href=#380 id=380 data-nosnippet>380</a>
+<a href=#381 id=381 data-nosnippet>381</a>    <span class="comment">// ── 3. Verificar el ID Token de Firebase (criptografia + claims) ──
+<a href=#382 id=382 data-nosnippet>382</a>    </span><span class="kw">let </span>claims = firebase.verify(<span class="kw-2">&amp;</span>body.id_token).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#383 id=383 data-nosnippet>383</a>
+<a href=#384 id=384 data-nosnippet>384</a>    <span class="comment">// ── 4. Tipar el provider via whitelist (rechaza phone/microsoft/etc. con 400) ──
+<a href=#385 id=385 data-nosnippet>385</a>    </span><span class="kw">let </span>provider = claims.provider().map_err(|p| {
+<a href=#386 id=386 data-nosnippet>386</a>        <span class="macro">tracing::warn!</span>(provider = %p, <span class="string">"sign_in_provider de Firebase no soportado todavia"</span>);
+<a href=#387 id=387 data-nosnippet>387</a>        AppError::BadRequest(<span class="macro">format!</span>(<span class="string">"proveedor `{p}` no soportado todavia"</span>))
+<a href=#388 id=388 data-nosnippet>388</a>    })<span class="question-mark">?</span>;
+<a href=#389 id=389 data-nosnippet>389</a>    <span class="kw">let </span>anonimo = <span class="macro">matches!</span>(provider, SignInProvider::Anonymous);
+<a href=#390 id=390 data-nosnippet>390</a>    <span class="kw">let </span>admin = auth_service.es_email_admin_allowlist(claims.email.as_deref());
+<a href=#391 id=391 data-nosnippet>391</a>
+<a href=#392 id=392 data-nosnippet>392</a>    <span class="comment">// ── 5. Resolver el usuario (upsert + account-linking + lookup defensivo) ──
+<a href=#393 id=393 data-nosnippet>393</a>    </span><span class="kw">let </span>usuario = upsert_usuario_firebase(<span class="kw-2">&amp;</span>auth_repo, <span class="kw-2">&amp;</span>proveedor_repo, <span class="kw-2">&amp;</span>claims, provider).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#394 id=394 data-nosnippet>394</a>
+<a href=#395 id=395 data-nosnippet>395</a>    <span class="comment">// ── 6. Ultimo login + enriquecer perfil con name/picture (solo no-anonimos) ──
+<a href=#396 id=396 data-nosnippet>396</a>    </span>auth_repo.actualizar_ultimo_login(usuario.id).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#397 id=397 data-nosnippet>397</a>    <span class="kw">if </span>!anonimo {
+<a href=#398 id=398 data-nosnippet>398</a>        auth_repo
+<a href=#399 id=399 data-nosnippet>399</a>            .enriquecer_perfil_si_vacio(
+<a href=#400 id=400 data-nosnippet>400</a>                usuario.id,
+<a href=#401 id=401 data-nosnippet>401</a>                claims.name.as_deref(),
+<a href=#402 id=402 data-nosnippet>402</a>                claims.picture.as_deref(),
+<a href=#403 id=403 data-nosnippet>403</a>            )
+<a href=#404 id=404 data-nosnippet>404</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#405 id=405 data-nosnippet>405</a>    }
+<a href=#406 id=406 data-nosnippet>406</a>
+<a href=#407 id=407 data-nosnippet>407</a>    <span class="comment">// ── 7. Emitir tokens propios (HS256, flag anonimo derivado del provider) ──
+<a href=#408 id=408 data-nosnippet>408</a>    </span><span class="kw">let </span>access_token = auth_service.generar_access_token_con_flags(usuario.id, anonimo, admin)<span class="question-mark">?</span>;
+<a href=#409 id=409 data-nosnippet>409</a>    <span class="kw">let </span>refresh_raw = auth_service.generar_refresh_token();
+<a href=#410 id=410 data-nosnippet>410</a>    <span class="kw">let </span>refresh_hash = auth_service.hashear_refresh_token(<span class="kw-2">&amp;</span>refresh_raw);
+<a href=#411 id=411 data-nosnippet>411</a>    <span class="kw">let </span>expira = (Utc::now() + Duration::days(<span class="number">30</span>)).fixed_offset();
+<a href=#412 id=412 data-nosnippet>412</a>    <span class="kw">let </span>user_agent = extraer_user_agent(req);
+<a href=#413 id=413 data-nosnippet>413</a>    auth_repo
+<a href=#414 id=414 data-nosnippet>414</a>        .guardar_refresh_token(usuario.id, <span class="kw-2">&amp;</span>refresh_hash, user_agent.as_deref(), expira)
+<a href=#415 id=415 data-nosnippet>415</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#416 id=416 data-nosnippet>416</a>
+<a href=#417 id=417 data-nosnippet>417</a>    <span class="comment">// ── 8. Recargar el usuario (puede haber cambiado nombre_visible / url_avatar) ──
+<a href=#418 id=418 data-nosnippet>418</a>    </span><span class="kw">let </span>usuario_final = auth_repo
+<a href=#419 id=419 data-nosnippet>419</a>        .buscar_usuario_por_id(usuario.id)
+<a href=#420 id=420 data-nosnippet>420</a>        .<span class="kw">await</span><span class="question-mark">?
+<a href=#421 id=421 data-nosnippet>421</a>        </span>.unwrap_or(usuario);
+<a href=#422 id=422 data-nosnippet>422</a>
+<a href=#423 id=423 data-nosnippet>423</a>    <span class="prelude-val">Ok</span>(Json(AuthResponse {
+<a href=#424 id=424 data-nosnippet>424</a>        access_token,
+<a href=#425 id=425 data-nosnippet>425</a>        refresh_token: refresh_raw,
+<a href=#426 id=426 data-nosnippet>426</a>        usuario: construir_usuario_response(
+<a href=#427 id=427 data-nosnippet>427</a>            <span class="kw-2">&amp;</span>usuario_final,
+<a href=#428 id=428 data-nosnippet>428</a>            provider.as_str(),
+<a href=#429 id=429 data-nosnippet>429</a>            anonimo,
+<a href=#430 id=430 data-nosnippet>430</a>            claims.email_verified,
+<a href=#431 id=431 data-nosnippet>431</a>            admin,
+<a href=#432 id=432 data-nosnippet>432</a>        ),
+<a href=#433 id=433 data-nosnippet>433</a>    }))
+<a href=#434 id=434 data-nosnippet>434</a>}
+<a href=#435 id=435 data-nosnippet>435</a>
+<a href=#436 id=436 data-nosnippet>436</a><span class="doccomment">/// Resuelve a que usuario corresponde un login Firebase, creando o
+<a href=#437 id=437 data-nosnippet>437</a>/// vinculando segun haga falta.
+<a href=#438 id=438 data-nosnippet>438</a>///
+<a href=#439 id=439 data-nosnippet>439</a>/// Extraida del handler para mantener el flujo principal legible.
+<a href=#440 id=440 data-nosnippet>440</a>/// Cubre 5 casos en orden:
+<a href=#441 id=441 data-nosnippet>441</a>///   1. Identidad EXACTA `(provider, firebase_uid)` ya existente -&gt; reusa.
+<a href=#442 id=442 data-nosnippet>442</a>///   2. `firebase_uid` existe en OTRO provider (`linkWithCredential`) -&gt; reusa
+<a href=#443 id=443 data-nosnippet>443</a>///      `id_usuario` y solo anade la nueva fila de identidad.
+<a href=#444 id=444 data-nosnippet>444</a>///   3. Anonymous nuevo -&gt; crea usuario sin email/hash + identidad.
+<a href=#445 id=445 data-nosnippet>445</a>///   4. password/google.com/apple.com con email coincidente y verificado -&gt;
+<a href=#446 id=446 data-nosnippet>446</a>///      auto-link. Apple siempre marca `email_verified=true` (incluso para
+<a href=#447 id=447 data-nosnippet>447</a>///      relays `@privaterelay.appleid.com`), asi que cae aqui sin friccion.
+<a href=#448 id=448 data-nosnippet>448</a>///      Si el email NO esta verificado -&gt; 409 (anti-takeover).
+<a href=#449 id=449 data-nosnippet>449</a>///   5. password/google.com/apple.com sin match -&gt; crea usuario OAuth nuevo
+<a href=#450 id=450 data-nosnippet>450</a>///      + identidad.
+<a href=#451 id=451 data-nosnippet>451</a></span><span class="kw">async fn </span>upsert_usuario_firebase(
+<a href=#452 id=452 data-nosnippet>452</a>    auth_repo: <span class="kw-2">&amp;</span>SeaAuthRepo,
+<a href=#453 id=453 data-nosnippet>453</a>    proveedor_repo: <span class="kw-2">&amp;</span>SeaProveedorAutenticacionRepo,
+<a href=#454 id=454 data-nosnippet>454</a>    claims: <span class="kw-2">&amp;</span>FirebaseClaims,
+<a href=#455 id=455 data-nosnippet>455</a>    provider: SignInProvider,
+<a href=#456 id=456 data-nosnippet>456</a>) -&gt; <span class="prelude-ty">Result</span>&lt;usuario::Model, AppError&gt; {
+<a href=#457 id=457 data-nosnippet>457</a>    <span class="kw">let </span>provider_str = provider.as_str();
+<a href=#458 id=458 data-nosnippet>458</a>    <span class="kw">let </span>datos = construir_datos_proveedor_firebase(claims);
+<a href=#459 id=459 data-nosnippet>459</a>
+<a href=#460 id=460 data-nosnippet>460</a>    <span class="comment">// 1. Identidad EXACTA (provider, sub) ya existe -&gt; refresca y devuelve.
+<a href=#461 id=461 data-nosnippet>461</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(prov) = proveedor_repo
+<a href=#462 id=462 data-nosnippet>462</a>        .buscar_por_proveedor_e_identificador(provider_str, <span class="kw-2">&amp;</span>claims.sub)
+<a href=#463 id=463 data-nosnippet>463</a>        .<span class="kw">await</span><span class="question-mark">?
+<a href=#464 id=464 data-nosnippet>464</a>    </span>{
+<a href=#465 id=465 data-nosnippet>465</a>        proveedor_repo
+<a href=#466 id=466 data-nosnippet>466</a>            .actualizar_datos(prov.id, claims.email.as_deref(), <span class="prelude-val">Some</span>(datos))
+<a href=#467 id=467 data-nosnippet>467</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#468 id=468 data-nosnippet>468</a>        <span class="kw">return </span>cargar_usuario_obligatorio(auth_repo, prov.id_usuario).<span class="kw">await</span>;
+<a href=#469 id=469 data-nosnippet>469</a>    }
+<a href=#470 id=470 data-nosnippet>470</a>
+<a href=#471 id=471 data-nosnippet>471</a>    <span class="comment">// 2. Lookup defensivo: el mismo `sub` ya existe en OTRO provider.
+<a href=#472 id=472 data-nosnippet>472</a>    //    Caso: usuario anonimo que hace `linkWithCredential` en el cliente y
+<a href=#473 id=473 data-nosnippet>473</a>    //    conserva su firebase_uid pero cambia de provider. Reusamos el
+<a href=#474 id=474 data-nosnippet>474</a>    //    `id_usuario` y solo anadimos la nueva fila de identidad para no
+<a href=#475 id=475 data-nosnippet>475</a>    //    crear un usuario duplicado.
+<a href=#476 id=476 data-nosnippet>476</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(prov) = proveedor_repo
+<a href=#477 id=477 data-nosnippet>477</a>        .buscar_por_firebase_uid_cualquier_provider(<span class="kw-2">&amp;</span>claims.sub)
+<a href=#478 id=478 data-nosnippet>478</a>        .<span class="kw">await</span><span class="question-mark">?
+<a href=#479 id=479 data-nosnippet>479</a>    </span>{
+<a href=#480 id=480 data-nosnippet>480</a>        <span class="macro">tracing::info!</span>(
+<a href=#481 id=481 data-nosnippet>481</a>            firebase_uid = %claims.sub,
+<a href=#482 id=482 data-nosnippet>482</a>            provider_existente = %prov.proveedor.as_deref().unwrap_or(<span class="string">"(null)"</span>),
+<a href=#483 id=483 data-nosnippet>483</a>            provider_nuevo = %provider_str,
+<a href=#484 id=484 data-nosnippet>484</a>            <span class="string">"firebase_uid existente en otro provider, anadiendo nueva identidad al mismo usuario"
+<a href=#485 id=485 data-nosnippet>485</a>        </span>);
+<a href=#486 id=486 data-nosnippet>486</a>        crear_proveedor_identidad(proveedor_repo, prov.id_usuario, provider_str, claims, datos)
+<a href=#487 id=487 data-nosnippet>487</a>            .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#488 id=488 data-nosnippet>488</a>        <span class="kw">return </span>cargar_usuario_obligatorio(auth_repo, prov.id_usuario).<span class="kw">await</span>;
+<a href=#489 id=489 data-nosnippet>489</a>    }
+<a href=#490 id=490 data-nosnippet>490</a>
+<a href=#491 id=491 data-nosnippet>491</a>    <span class="comment">// 3. Anonymous nuevo: crea usuario sin email/hash, fila con identificador=firebase_uid.
+<a href=#492 id=492 data-nosnippet>492</a>    </span><span class="kw">if </span><span class="macro">matches!</span>(provider, SignInProvider::Anonymous) {
+<a href=#493 id=493 data-nosnippet>493</a>        <span class="kw">let </span>nuevo = auth_repo.crear_usuario_anonimo().<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#494 id=494 data-nosnippet>494</a>        crear_proveedor_identidad(proveedor_repo, nuevo.id, provider_str, claims, datos).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#495 id=495 data-nosnippet>495</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(nuevo);
+<a href=#496 id=496 data-nosnippet>496</a>    }
+<a href=#497 id=497 data-nosnippet>497</a>
+<a href=#498 id=498 data-nosnippet>498</a>    <span class="comment">// 4. password/google.com/apple.com con email coincidente -&gt; auto-link si
+<a href=#499 id=499 data-nosnippet>499</a>    //    email_verified=true. Asi un usuario legacy con `hash_contrasena` se
+<a href=#500 id=500 data-nosnippet>500</a>    //    enlaza automaticamente a su nueva identidad Firebase sin intervencion
+<a href=#501 id=501 data-nosnippet>501</a>    //    manual. Apple siempre propaga email_verified=true (incluso emails
+<a href=#502 id=502 data-nosnippet>502</a>    //    relay), por lo que tambien cae aqui sin friccion.
+<a href=#503 id=503 data-nosnippet>503</a>    </span><span class="kw">if let </span><span class="prelude-val">Some</span>(email) = claims.email.as_deref()
+<a href=#504 id=504 data-nosnippet>504</a>        &amp;&amp; <span class="kw">let </span><span class="prelude-val">Some</span>(usuario_existente) = auth_repo.buscar_por_email(email).<span class="kw">await</span><span class="question-mark">?
+<a href=#505 id=505 data-nosnippet>505</a>    </span>{
+<a href=#506 id=506 data-nosnippet>506</a>        <span class="comment">// Politica: sin verified=true un atacante podria registrar un
+<a href=#507 id=507 data-nosnippet>507</a>        // proveedor OAuth con un email ajeno y apoderarse de la cuenta local.
+<a href=#508 id=508 data-nosnippet>508</a>        </span><span class="kw">if </span>claims.email_verified != <span class="prelude-val">Some</span>(<span class="bool-val">true</span>) {
+<a href=#509 id=509 data-nosnippet>509</a>            <span class="kw">return </span><span class="prelude-val">Err</span>(AppError::Conflict(
+<a href=#510 id=510 data-nosnippet>510</a>                <span class="string">"ya existe una cuenta con este email; verifica el email en tu \
+<a href=#511 id=511 data-nosnippet>511</a>                 proveedor y reintenta para vincular automaticamente"
+<a href=#512 id=512 data-nosnippet>512</a>                    </span>.into(),
+<a href=#513 id=513 data-nosnippet>513</a>            ));
+<a href=#514 id=514 data-nosnippet>514</a>        }
+<a href=#515 id=515 data-nosnippet>515</a>        crear_proveedor_identidad(
+<a href=#516 id=516 data-nosnippet>516</a>            proveedor_repo,
+<a href=#517 id=517 data-nosnippet>517</a>            usuario_existente.id,
+<a href=#518 id=518 data-nosnippet>518</a>            provider_str,
+<a href=#519 id=519 data-nosnippet>519</a>            claims,
+<a href=#520 id=520 data-nosnippet>520</a>            datos,
+<a href=#521 id=521 data-nosnippet>521</a>        )
+<a href=#522 id=522 data-nosnippet>522</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#523 id=523 data-nosnippet>523</a>        <span class="kw">return </span><span class="prelude-val">Ok</span>(usuario_existente);
+<a href=#524 id=524 data-nosnippet>524</a>    }
+<a href=#525 id=525 data-nosnippet>525</a>
+<a href=#526 id=526 data-nosnippet>526</a>    <span class="comment">// 5. password/google.com/apple.com sin match previo -&gt; usuario OAuth nuevo + identidad.
+<a href=#527 id=527 data-nosnippet>527</a>    </span><span class="kw">let </span>nuevo = auth_repo
+<a href=#528 id=528 data-nosnippet>528</a>        .crear_usuario_oauth(
+<a href=#529 id=529 data-nosnippet>529</a>            claims.email.as_deref(),
+<a href=#530 id=530 data-nosnippet>530</a>            claims.name.as_deref(),
+<a href=#531 id=531 data-nosnippet>531</a>            claims.picture.as_deref(),
+<a href=#532 id=532 data-nosnippet>532</a>        )
+<a href=#533 id=533 data-nosnippet>533</a>        .<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#534 id=534 data-nosnippet>534</a>    crear_proveedor_identidad(proveedor_repo, nuevo.id, provider_str, claims, datos).<span class="kw">await</span><span class="question-mark">?</span>;
+<a href=#535 id=535 data-nosnippet>535</a>    <span class="prelude-val">Ok</span>(nuevo)
+<a href=#536 id=536 data-nosnippet>536</a>}
+<a href=#537 id=537 data-nosnippet>537</a>
+<a href=#538 id=538 data-nosnippet>538</a><span class="doccomment">/// Inserta una fila en `proveedores_autenticacion` que representa la
+<a href=#539 id=539 data-nosnippet>539</a>/// identidad Firebase de un usuario en un provider concreto.
+<a href=#540 id=540 data-nosnippet>540</a>///
+<a href=#541 id=541 data-nosnippet>541</a>/// `provider_str` es el literal `sign_in_provider` (ya validado contra
+<a href=#542 id=542 data-nosnippet>542</a>/// la whitelist tipada `SignInProvider`); ej: `"google.com"`, `"password"`,
+<a href=#543 id=543 data-nosnippet>543</a>/// `"anonymous"`. Se guarda en la columna `proveedor`, mientras que
+<a href=#544 id=544 data-nosnippet>544</a>/// `claims.sub` (el `firebase_uid`) va a `identificador_proveedor`.
+<a href=#545 id=545 data-nosnippet>545</a></span><span class="kw">async fn </span>crear_proveedor_identidad(
+<a href=#546 id=546 data-nosnippet>546</a>    proveedor_repo: <span class="kw-2">&amp;</span>SeaProveedorAutenticacionRepo,
+<a href=#547 id=547 data-nosnippet>547</a>    id_usuario: Uuid,
+<a href=#548 id=548 data-nosnippet>548</a>    provider_str: <span class="kw-2">&amp;</span>str,
+<a href=#549 id=549 data-nosnippet>549</a>    claims: <span class="kw-2">&amp;</span>FirebaseClaims,
+<a href=#550 id=550 data-nosnippet>550</a>    datos: serde_json::Value,
+<a href=#551 id=551 data-nosnippet>551</a>) -&gt; <span class="prelude-ty">Result</span>&lt;proveedor_autenticacion::Model, AppError&gt; {
+<a href=#552 id=552 data-nosnippet>552</a>    proveedor_repo
+<a href=#553 id=553 data-nosnippet>553</a>        .crear(
+<a href=#554 id=554 data-nosnippet>554</a>            id_usuario,
+<a href=#555 id=555 data-nosnippet>555</a>            provider_str,
+<a href=#556 id=556 data-nosnippet>556</a>            <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span>claims.sub),
+<a href=#557 id=557 data-nosnippet>557</a>            claims.email.as_deref(),
+<a href=#558 id=558 data-nosnippet>558</a>            <span class="prelude-val">Some</span>(datos),
+<a href=#559 id=559 data-nosnippet>559</a>        )
+<a href=#560 id=560 data-nosnippet>560</a>        .<span class="kw">await
+<a href=#561 id=561 data-nosnippet>561</a></span>}
+<a href=#562 id=562 data-nosnippet>562</a>
+<a href=#563 id=563 data-nosnippet>563</a><span class="doccomment">/// Carga un usuario por id devolviendo `Internal` si no existe — protege
+<a href=#564 id=564 data-nosnippet>564</a>/// contra inconsistencias: si una fila de `proveedores_autenticacion`
+<a href=#565 id=565 data-nosnippet>565</a>/// apunta a un usuario que ya no existe, es un bug, no un 401.
+<a href=#566 id=566 data-nosnippet>566</a></span><span class="kw">async fn </span>cargar_usuario_obligatorio(
+<a href=#567 id=567 data-nosnippet>567</a>    auth_repo: <span class="kw-2">&amp;</span>SeaAuthRepo,
+<a href=#568 id=568 data-nosnippet>568</a>    id: Uuid,
+<a href=#569 id=569 data-nosnippet>569</a>) -&gt; <span class="prelude-ty">Result</span>&lt;usuario::Model, AppError&gt; {
+<a href=#570 id=570 data-nosnippet>570</a>    auth_repo
+<a href=#571 id=571 data-nosnippet>571</a>        .buscar_usuario_por_id(id)
+<a href=#572 id=572 data-nosnippet>572</a>        .<span class="kw">await</span><span class="question-mark">?
+<a href=#573 id=573 data-nosnippet>573</a>        </span>.ok_or_else(|| AppError::Internal(<span class="macro">format!</span>(<span class="string">"usuario {id} referenciado pero inexistente"</span>)))
+<a href=#574 id=574 data-nosnippet>574</a>}
 </code></pre></div></section></main></body></html>
