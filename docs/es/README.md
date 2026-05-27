@@ -175,6 +175,7 @@ inem-sellar-backend/src/
 | `JWT_EXPIRACION_MINUTOS`  | Duracion del access token en minutos         | `15`                          |
 | `FIREBASE_PROJECT_ID`     | Project ID de Firebase (sin default; panic) | `inemsellar-app`              |
 | `ADMIN_EMAIL_ALLOWLIST`   | Emails admin separados por coma              | `admin@dominio.com`           |
+| `ADMIN_WEB_ORIGINS`       | Origins web permitidos para CORS             | `https://inemadmin.apptolast.com,http://localhost:8081` |
 | `SERVER_ADDR`             | Direccion publica (para logs)                | `0.0.0.0:8080`                |
 | `PORT_ADDR`               | Direccion de binding del socket TCP          | `0.0.0.0:8080`                |
 | `RUST_LOG`                | Nivel de logs (trace/debug/info/warn/error)  | `info`                        |

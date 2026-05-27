@@ -117,6 +117,14 @@ pub struct AppConfig {
     /// Default vacio: nadie es admin.
     #[serde(default)]
     pub admin_email_allowlist: String,
+
+    /// Origenes web permitidos para CORS, separados por coma.
+    ///
+    /// Se lee de `ADMIN_WEB_ORIGINS`. Deben ser origins exactos, sin slash
+    /// final ni path, por ejemplo:
+    /// `https://inemadmin.apptolast.com,http://localhost:8081`.
+    #[serde(default = "default_admin_web_origins")]
+    pub admin_web_origins: String,
 }
 
 /// Puerto SMTP por defecto: `587` (submission con STARTTLS).
@@ -133,6 +141,11 @@ fn default_smtp_port() -> u16 {
 /// Duracion por defecto del access token: 15 minutos.
 fn default_jwt_expiracion() -> u64 {
     15
+}
+
+/// Origenes admin por defecto para CORS.
+fn default_admin_web_origins() -> String {
+    crate::middleware::DEFAULT_ADMIN_WEB_ORIGINS.to_string()
 }
 
 /// Devuelve la direccion por defecto del servidor.

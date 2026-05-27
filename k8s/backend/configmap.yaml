@@ -10,6 +10,9 @@ data:
   PORT_ADDR: "0.0.0.0:8080"
   RUST_LOG: "info"
   JWT_EXPIRACION_MINUTOS: "15"
+  # Origenes permitidos por CORS para el panel admin web.
+  # Deben ser origins exactos, sin slash final.
+  ADMIN_WEB_ORIGINS: "https://inemadmin.apptolast.com,http://localhost:8081"
   # Project ID de Firebase para validar los ID Tokens (aud + iss).
   # No es secreto: aparece en google-services.json publico y en cada token JWT.
   FIREBASE_PROJECT_ID: "inemsellar-app"
