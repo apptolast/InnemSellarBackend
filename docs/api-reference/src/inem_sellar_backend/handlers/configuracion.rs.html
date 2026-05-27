@@ -81,7 +81,7 @@
 <a href=#81 id=81 data-nosnippet>81</a>
 <a href=#82 id=82 data-nosnippet>82</a><span class="doccomment">/// POST /api/v1/configuracion — Crear una nueva entrada de configuracion (admin).
 <a href=#83 id=83 data-nosnippet>83</a>///
-<a href=#84 id=84 data-nosnippet>84</a>/// Requiere autenticacion JWT. Devuelve 409 si la clave ya existe.
+<a href=#84 id=84 data-nosnippet>84</a>/// Requiere autenticacion JWT con `admin=true`. Devuelve 409 si la clave ya existe.
 <a href=#85 id=85 data-nosnippet>85</a></span><span class="attr">#[endpoint(tags(<span class="string">"Configuracion"</span>), security((<span class="string">"bearer_auth" </span>= []</span>)))]
 <a href=#86 id=86 data-nosnippet>86</a><span class="kw">pub async fn </span>crear_configuracion(
 <a href=#87 id=87 data-nosnippet>87</a>    body: JsonBody&lt;CrearConfiguracionRequest&gt;,
@@ -108,7 +108,7 @@
 <a href=#108 id=108 data-nosnippet>108</a>
 <a href=#109 id=109 data-nosnippet>109</a><span class="doccomment">/// PUT /api/v1/configuracion/{clave} — Actualizar una configuracion (admin).
 <a href=#110 id=110 data-nosnippet>110</a>///
-<a href=#111 id=111 data-nosnippet>111</a>/// Requiere autenticacion JWT. Solo actualiza campos enviados.
+<a href=#111 id=111 data-nosnippet>111</a>/// Requiere autenticacion JWT con `admin=true`. Solo actualiza campos enviados.
 <a href=#112 id=112 data-nosnippet>112</a></span><span class="attr">#[endpoint(tags(<span class="string">"Configuracion"</span>), security((<span class="string">"bearer_auth" </span>= []</span>)))]
 <a href=#113 id=113 data-nosnippet>113</a><span class="kw">pub async fn </span>actualizar_configuracion(
 <a href=#114 id=114 data-nosnippet>114</a>    clave: PathParam&lt;String&gt;,

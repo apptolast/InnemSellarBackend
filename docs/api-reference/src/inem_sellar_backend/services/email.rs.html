@@ -354,12 +354,13 @@
 <a href=#354 id=354 data-nosnippet>354</a>            smtp_password: <span class="string">""</span>.into(), <span class="comment">// vacio -&gt; deshabilitado
 <a href=#355 id=355 data-nosnippet>355</a>            </span>report_email_from: <span class="string">"admin@apptolast.com"</span>.into(),
 <a href=#356 id=356 data-nosnippet>356</a>            report_email_to: <span class="string">"admin@apptolast.com"</span>.into(),
-<a href=#357 id=357 data-nosnippet>357</a>        };
-<a href=#358 id=358 data-nosnippet>358</a>
-<a href=#359 id=359 data-nosnippet>359</a>        <span class="kw">let </span>notifier = EmailNotifier::from_config(<span class="kw-2">&amp;</span>cfg).expect(<span class="string">"no debe fallar"</span>);
-<a href=#360 id=360 data-nosnippet>360</a>        <span class="macro">assert!</span>(notifier.transport.is_none());
-<a href=#361 id=361 data-nosnippet>361</a>        <span class="macro">assert!</span>(notifier.from.is_none());
-<a href=#362 id=362 data-nosnippet>362</a>        <span class="macro">assert!</span>(notifier.to.is_none());
-<a href=#363 id=363 data-nosnippet>363</a>    }
-<a href=#364 id=364 data-nosnippet>364</a>}
+<a href=#357 id=357 data-nosnippet>357</a>            admin_email_allowlist: <span class="string">""</span>.into(),
+<a href=#358 id=358 data-nosnippet>358</a>        };
+<a href=#359 id=359 data-nosnippet>359</a>
+<a href=#360 id=360 data-nosnippet>360</a>        <span class="kw">let </span>notifier = EmailNotifier::from_config(<span class="kw-2">&amp;</span>cfg).expect(<span class="string">"no debe fallar"</span>);
+<a href=#361 id=361 data-nosnippet>361</a>        <span class="macro">assert!</span>(notifier.transport.is_none());
+<a href=#362 id=362 data-nosnippet>362</a>        <span class="macro">assert!</span>(notifier.from.is_none());
+<a href=#363 id=363 data-nosnippet>363</a>        <span class="macro">assert!</span>(notifier.to.is_none());
+<a href=#364 id=364 data-nosnippet>364</a>    }
+<a href=#365 id=365 data-nosnippet>365</a>}
 </code></pre></div></section></main></body></html>

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"struct":["auth_middleware"]};
+window.SIDEBAR_ITEMS = {"fn":["es_admin"],"struct":["admin_middleware","auth_middleware"]};

@@ -89,7 +89,7 @@
 <a href=#89 id=89 data-nosnippet>89</a>
 <a href=#90 id=90 data-nosnippet>90</a><span class="doccomment">/// POST /api/v1/prestaciones — Crear una nueva prestacion (admin).
 <a href=#91 id=91 data-nosnippet>91</a>///
-<a href=#92 id=92 data-nosnippet>92</a>/// Requiere autenticacion JWT. En el futuro se verificara rol de admin.
+<a href=#92 id=92 data-nosnippet>92</a>/// Requiere autenticacion JWT con `admin=true`.
 <a href=#93 id=93 data-nosnippet>93</a></span><span class="attr">#[endpoint(tags(<span class="string">"Prestaciones"</span>), security((<span class="string">"bearer_auth" </span>= []</span>)))]
 <a href=#94 id=94 data-nosnippet>94</a><span class="kw">pub async fn </span>crear_prestacion(
 <a href=#95 id=95 data-nosnippet>95</a>    body: JsonBody&lt;CrearPrestacionRequest&gt;,
@@ -118,7 +118,7 @@
 <a href=#118 id=118 data-nosnippet>118</a>
 <a href=#119 id=119 data-nosnippet>119</a><span class="doccomment">/// PUT /api/v1/prestaciones/{id} — Actualizar una prestacion (admin).
 <a href=#120 id=120 data-nosnippet>120</a>///
-<a href=#121 id=121 data-nosnippet>121</a>/// Requiere autenticacion JWT. Solo se actualizan los campos enviados.
+<a href=#121 id=121 data-nosnippet>121</a>/// Requiere autenticacion JWT con `admin=true`. Solo se actualizan los campos enviados.
 <a href=#122 id=122 data-nosnippet>122</a></span><span class="attr">#[endpoint(tags(<span class="string">"Prestaciones"</span>), security((<span class="string">"bearer_auth" </span>= []</span>)))]
 <a href=#123 id=123 data-nosnippet>123</a><span class="kw">pub async fn </span>actualizar_prestacion(
 <a href=#124 id=124 data-nosnippet>124</a>    id: PathParam&lt;i32&gt;,
@@ -149,7 +149,7 @@
 <a href=#149 id=149 data-nosnippet>149</a>
 <a href=#150 id=150 data-nosnippet>150</a><span class="doccomment">/// DELETE /api/v1/prestaciones/{id} — Eliminar una prestacion (admin).
 <a href=#151 id=151 data-nosnippet>151</a>///
-<a href=#152 id=152 data-nosnippet>152</a>/// Elimina fisicamente la prestacion de la BD.
+<a href=#152 id=152 data-nosnippet>152</a>/// Requiere autenticacion JWT con `admin=true`. Elimina fisicamente la prestacion de la BD.
 <a href=#153 id=153 data-nosnippet>153</a></span><span class="attr">#[endpoint(tags(<span class="string">"Prestaciones"</span>), security((<span class="string">"bearer_auth" </span>= []</span>)))]
 <a href=#154 id=154 data-nosnippet>154</a><span class="kw">pub async fn </span>eliminar_prestacion(
 <a href=#155 id=155 data-nosnippet>155</a>    id: PathParam&lt;i32&gt;,
