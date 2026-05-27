@@ -112,8 +112,8 @@ pub struct AppConfig {
     /// Emails administradores separados por coma.
     ///
     /// Se lee de `ADMIN_EMAIL_ALLOWLIST`. No es un rol en BD ni un custom
-    /// claim de Firebase: el backend compara el email verificado del ID Token
-    /// contra esta lista y emite su JWT propio con `admin=true` solo si encaja.
+    /// claim de Firebase: el backend compara el email del ID Token contra
+    /// esta lista y emite su JWT propio con `admin=true` solo si encaja.
     /// Default vacio: nadie es admin.
     #[serde(default)]
     pub admin_email_allowlist: String,

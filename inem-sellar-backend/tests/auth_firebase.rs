@@ -365,12 +365,14 @@ async fn firebase_login_password_crea_usuario_si_no_existe() {
     assert_eq!(body["usuario"]["anonimo"], false);
     assert_eq!(body["usuario"]["email"], email);
     assert_eq!(body["usuario"]["email_verificado"], true);
+    assert!(body["usuario"].get("admin").is_none());
 }
 
-/// Email verificado dentro de ADMIN_EMAIL_ALLOWLIST -> response opcional
-/// `usuario.admin=true` y JWT propio con claim `admin=true`.
+/// Email dentro de ADMIN_EMAIL_ALLOWLIST -> response opcional
+/// `usuario.admin=true` y JWT propio con claim `admin=true`, aunque Firebase
+/// devuelva `email_verified=false`.
 #[tokio::test]
-async fn firebase_login_password_allowlist_emite_admin_true() {
+async fn firebase_login_password_allowlist_emite_admin_true_sin_email_verificado() {
     let (_server, jwks_url) = start_jwks_server().await;
 
     let user_id = Uuid::new_v4();
@@ -399,7 +401,7 @@ async fn firebase_login_password_allowlist_emite_admin_true() {
     );
 
     let service = build_app_with_admin_allowlist(db, jwks_url, "admin@example.com");
-    let token = forge_token(claims_con_email("password", sub, email, true), KID);
+    let token = forge_token(claims_con_email("password", sub, email, false), KID);
 
     let mut res = TestClient::post("http://127.0.0.1/api/v1/auth/firebase")
         .json(&json!({ "id_token": token }))
@@ -409,6 +411,7 @@ async fn firebase_login_password_allowlist_emite_admin_true() {
     assert_eq!(res.status_code, Some(StatusCode::OK));
     let body: serde_json::Value = res.take_json().await.unwrap();
     assert_eq!(body["usuario"]["admin"], true);
+    assert_eq!(body["usuario"]["email_verificado"], false);
 
     let claims = AuthService::new(JWT_SECRET.to_string(), 15)
         .verificar_access_token(body["access_token"].as_str().unwrap())

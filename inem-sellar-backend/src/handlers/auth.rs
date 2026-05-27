@@ -254,14 +254,7 @@ pub async fn refrescar(
         .buscar_usuario_por_id(token_db.id_usuario)
         .await?
         .ok_or(AppError::Unauthorized)?;
-    let admin = if let Some(email) = usuario.email.as_deref() {
-        auth_service.email_en_admin_allowlist(email)
-            && proveedor_repo
-                .tiene_email_verificado(token_db.id_usuario, email)
-                .await?
-    } else {
-        false
-    };
+    let admin = auth_service.es_email_admin_allowlist(usuario.email.as_deref());
 
     // Generar nuevo par de tokens manteniendo el flag.
     let access_token =
@@ -394,8 +387,7 @@ pub async fn login_firebase(
         AppError::BadRequest(format!("proveedor `{p}` no soportado todavia"))
     })?;
     let anonimo = matches!(provider, SignInProvider::Anonymous);
-    let admin =
-        auth_service.es_email_admin_verificado(claims.email.as_deref(), claims.email_verified);
+    let admin = auth_service.es_email_admin_allowlist(claims.email.as_deref());
 
     // ── 5. Resolver el usuario (upsert + account-linking + lookup defensivo) ──
     let usuario = upsert_usuario_firebase(&auth_repo, &proveedor_repo, &claims, provider).await?;

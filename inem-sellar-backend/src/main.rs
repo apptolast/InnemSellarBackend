@@ -183,7 +183,7 @@ async fn main() {
                      llama a `POST /api/v1/auth/firebase` con el ID Token. La respuesta \
                      incluye un `access_token` JWT que puedes pulsar en el boton Authorize \
                      (arriba a la derecha) para probar los endpoints protegidos.\n\n\
-                     **Admin**: si el email verificado del Firebase ID Token pertenece a \
+                     **Admin**: si el email del Firebase ID Token pertenece a \
                      `ADMIN_EMAIL_ALLOWLIST`, el backend emite su JWT propio con \
                      `admin=true`. Las rutas admin devuelven 403 para cualquier otro \
                      usuario autenticado.",

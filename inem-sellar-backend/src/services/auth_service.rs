@@ -47,7 +47,7 @@ pub struct Claims {
     /// emitidos antes de la integracion con Firebase).
     #[serde(default)]
     pub anonimo: bool,
-    /// `true` si el token corresponde a un email verificado incluido en
+    /// `true` si el token corresponde a un email incluido en
     /// `ADMIN_EMAIL_ALLOWLIST`.
     #[serde(default)]
     pub admin: bool,
@@ -100,16 +100,11 @@ impl AuthService {
             .contains(&normalizar_email(email))
     }
 
-    /// Devuelve `true` solo si el email esta verificado y en allowlist.
-    pub fn es_email_admin_verificado(
-        &self,
-        email: Option<&str>,
-        email_verificado: Option<bool>,
-    ) -> bool {
-        email_verificado == Some(true)
-            && email
-                .map(|email| self.email_en_admin_allowlist(email))
-                .unwrap_or(false)
+    /// Devuelve `true` si el email existe y pertenece a la allowlist admin.
+    pub fn es_email_admin_allowlist(&self, email: Option<&str>) -> bool {
+        email
+            .map(|email| self.email_en_admin_allowlist(email))
+            .unwrap_or(false)
     }
 
     /// Genera un access token JWT firmado con HS256 marcando si el usuario
@@ -229,13 +224,13 @@ mod tests {
     }
 
     #[test]
-    fn admin_requiere_email_verificado() {
+    fn admin_depende_solo_de_allowlist() {
         let service =
             AuthService::new_with_admin_email_allowlist("secret".into(), 15, "admin@example.com");
 
-        assert!(service.es_email_admin_verificado(Some("admin@example.com"), Some(true)));
-        assert!(!service.es_email_admin_verificado(Some("admin@example.com"), Some(false)));
-        assert!(!service.es_email_admin_verificado(Some("admin@example.com"), None));
-        assert!(!service.es_email_admin_verificado(None, Some(true)));
+        assert!(service.es_email_admin_allowlist(Some("admin@example.com")));
+        assert!(service.es_email_admin_allowlist(Some("ADMIN@EXAMPLE.COM")));
+        assert!(!service.es_email_admin_allowlist(Some("user@example.com")));
+        assert!(!service.es_email_admin_allowlist(None));
     }
 }

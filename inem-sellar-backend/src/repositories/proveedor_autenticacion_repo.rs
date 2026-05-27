@@ -99,8 +99,9 @@ pub trait ProveedorAutenticacionRepo: Send + Sync {
     /// `true` si el usuario tiene alguna identidad Firebase con ese email
     /// y `datos_proveedor.email_verified=true`.
     ///
-    /// Se usa al refrescar tokens para no elevar a admin solo por estar en
-    /// allowlist: el email tambien debe haber sido verificado en Firebase.
+    /// Disponible para auditorias o futuras politicas que necesiten exigir
+    /// email verificado. La elevacion admin actual depende solo de
+    /// `ADMIN_EMAIL_ALLOWLIST`.
     fn tiene_email_verificado(
         &self,
         id_usuario: Uuid,
