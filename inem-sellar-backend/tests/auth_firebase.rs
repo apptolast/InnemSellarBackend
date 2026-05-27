@@ -26,7 +26,7 @@ use std::sync::{Arc, LazyLock};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
-use rsa::pkcs8::EncodePrivateKey;
+use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
 use rsa::traits::PublicKeyParts;
 use rsa::{RsaPrivateKey, pkcs8::LineEnding};
 use salvo::affix_state;
@@ -46,6 +46,7 @@ use inem_sellar_backend::services::{AuthService, FirebaseVerifier};
 // ─── Constantes globales de los tests ────────────────────────────────────
 
 const KID: &str = "test-kid-1";
+const LEGACY_KID: &str = "legacy-kid-1";
 const PROJECT_ID: &str = "test-project";
 const JWT_SECRET: &str = "test-jwt-secret-no-usado-en-prod";
 
@@ -90,6 +91,15 @@ fn build_jwks_json() -> serde_json::Value {
     })
 }
 
+/// Construye el JSON `kid -> PEM` del endpoint legacy Identity Toolkit.
+fn build_legacy_public_keys_json() -> serde_json::Value {
+    let public = PRIVATE_KEY.to_public_key();
+    let pem = public
+        .to_public_key_pem(LineEnding::LF)
+        .expect("encode public key pem");
+    json!({ LEGACY_KID: pem })
+}
+
 /// Levanta un wiremock con el JWKS en `/jwks`. Devuelve el server
 /// (su `Drop` lo limpia al final del test) y la URL completa.
 async fn start_jwks_server() -> (MockServer, String) {
@@ -102,6 +112,28 @@ async fn start_jwks_server() -> (MockServer, String) {
         .await;
     let url = format!("{}/jwks", server.uri());
     (server, url)
+}
+
+/// Levanta un wiremock con JWKS moderno y certificados legacy.
+async fn start_auth_keys_server() -> (MockServer, String, String) {
+    let server = MockServer::start().await;
+    let jwks = build_jwks_json();
+    let legacy_keys = build_legacy_public_keys_json();
+
+    Mock::given(method("GET"))
+        .and(path("/jwks"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(jwks))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/publicKeys"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(legacy_keys))
+        .mount(&server)
+        .await;
+
+    let jwks_url = format!("{}/jwks", server.uri());
+    let legacy_url = format!("{}/publicKeys", server.uri());
+    (server, jwks_url, legacy_url)
 }
 
 /// Forja un Firebase ID Token RS256 firmado con la clave indicada.
@@ -156,6 +188,22 @@ fn claims_google(sub: &str, email: &str, name: &str, picture: &str) -> serde_jso
     c["name"] = json!(name);
     c["picture"] = json!(picture);
     c
+}
+
+/// Token legacy que emite Identity Toolkit REST en el admin web.
+fn legacy_claims_password(sub: &str, email: &str, email_verified: bool) -> serde_json::Value {
+    let now = Utc::now().timestamp();
+    json!({
+        "iss": "https://identitytoolkit.google.com/",
+        "aud": PROJECT_ID,
+        "iat": now,
+        "exp": now + 3600,
+        "user_id": sub,
+        "email": email,
+        "sign_in_provider": "password",
+        "verified": email_verified,
+        "display_name": "Panel Admin"
+    })
 }
 
 // ─── Helpers de modelos para MockDatabase ────────────────────────────────
@@ -231,9 +279,23 @@ fn build_app_with_admin_allowlist(
     jwks_url: String,
     admin_allowlist: &str,
 ) -> Service {
+    build_app_with_admin_allowlist_and_legacy_url(
+        db,
+        jwks_url,
+        "http://127.0.0.1/no-legacy-keys".to_string(),
+        admin_allowlist,
+    )
+}
+
+fn build_app_with_admin_allowlist_and_legacy_url(
+    db: Arc<DatabaseConnection>,
+    jwks_url: String,
+    legacy_url: String,
+    admin_allowlist: &str,
+) -> Service {
     let auth_service =
         AuthService::new_with_admin_email_allowlist(JWT_SECRET.to_string(), 15, admin_allowlist);
-    let firebase = FirebaseVerifier::new_with_url(PROJECT_ID.to_string(), jwks_url);
+    let firebase = FirebaseVerifier::new_with_urls(PROJECT_ID.to_string(), jwks_url, legacy_url);
     let auth_repo = SeaAuthRepo::new(Arc::clone(&db));
     let proveedor_repo = SeaProveedorAutenticacionRepo::new(db);
 
@@ -412,6 +474,59 @@ async fn firebase_login_password_allowlist_emite_admin_true_sin_email_verificado
     let body: serde_json::Value = res.take_json().await.unwrap();
     assert_eq!(body["usuario"]["admin"], true);
     assert_eq!(body["usuario"]["email_verificado"], false);
+
+    let claims = AuthService::new(JWT_SECRET.to_string(), 15)
+        .verificar_access_token(body["access_token"].as_str().unwrap())
+        .unwrap();
+    assert!(claims.admin);
+}
+
+/// El admin web usa Identity Toolkit REST y puede enviar tokens legacy con
+/// `iss=https://identitytoolkit.google.com/` y `kid` publicado en
+/// `/v1/publicKeys`. El backend los normaliza al mismo contrato interno.
+#[tokio::test]
+async fn firebase_login_legacy_identity_toolkit_password_admin_true() {
+    let (_server, jwks_url, legacy_url) = start_auth_keys_server().await;
+
+    let user_id = Uuid::new_v4();
+    let prov_id = Uuid::new_v4();
+    let token_id = Uuid::new_v4();
+    let sub = "legacy-admin-uid";
+    let email = "admin@example.com";
+
+    let user = mock_usuario(user_id, Some(email), false);
+    let prov = mock_proveedor(prov_id, user_id, "password", sub);
+    let tok = mock_refresh(token_id, user_id);
+
+    let db: Arc<DatabaseConnection> = Arc::new(
+        MockDatabase::new(DatabaseBackend::Postgres)
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            .append_query_results::<proveedor_autenticacion::Model, _, _>(vec![empty()])
+            .append_query_results::<usuario::Model, _, _>(vec![empty()])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![prov.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .append_query_results(vec![vec![tok.clone()]])
+            .append_query_results(vec![vec![user.clone()]])
+            .into_connection(),
+    );
+
+    let service = build_app_with_admin_allowlist_and_legacy_url(db, jwks_url, legacy_url, email);
+    let token = forge_token(legacy_claims_password(sub, email, false), LEGACY_KID);
+
+    let mut res = TestClient::post("http://127.0.0.1/api/v1/auth/firebase")
+        .json(&json!({ "id_token": token }))
+        .send(&service)
+        .await;
+
+    assert_eq!(res.status_code, Some(StatusCode::OK));
+    let body: serde_json::Value = res.take_json().await.unwrap();
+    assert_eq!(body["usuario"]["proveedor"], "password");
+    assert_eq!(body["usuario"]["email"], email);
+    assert_eq!(body["usuario"]["email_verificado"], false);
+    assert_eq!(body["usuario"]["admin"], true);
 
     let claims = AuthService::new(JWT_SECRET.to_string(), 15)
         .verificar_access_token(body["access_token"].as_str().unwrap())

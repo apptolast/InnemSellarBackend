@@ -34,6 +34,14 @@ use crate::errors::AppError;
 const JWKS_URL_DEFAULT: &str =
     "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
 
+/// URL publica de certificados X.509 del firmante legacy de Identity Toolkit.
+///
+/// El admin web usa `accounts:signInWithPassword` via REST. En este proyecto
+/// esa API esta emitiendo tokens legacy con `iss=https://identitytoolkit.google.com/`
+/// y `kid` corto (ej: `3XdImQ`). Google documenta este endpoint para verificar
+/// esos tokens legacy.
+const LEGACY_PUBLIC_KEYS_URL_DEFAULT: &str = "https://identitytoolkit.googleapis.com/v1/publicKeys";
+
 /// TTL del cache de JWKS si la respuesta no incluye `Cache-Control: max-age=...`.
 /// 1 hora es conservador: las claves de Google rotan cada varias horas.
 const FALLBACK_TTL: Duration = Duration::from_secs(60 * 60);
@@ -155,7 +163,11 @@ pub struct FirebaseProviderInfo {
 /// `Option` modela esto correctamente sin asumir nada.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct FirebaseClaims {
-    /// Issuer — debe ser `https://securetoken.google.com/<project_id>`.
+    /// Issuer del token aceptado.
+    ///
+    /// Normalmente es `https://securetoken.google.com/<project_id>`. Para
+    /// tokens legacy de Identity Toolkit REST puede ser
+    /// `https://identitytoolkit.google.com/`.
     pub iss: String,
     /// Audience — debe ser `<project_id>` exactamente.
     pub aud: String,
@@ -211,6 +223,31 @@ struct JwksCache {
     expires_at: Instant,
 }
 
+/// Cache de certificados X.509 legacy publicados por Identity Toolkit.
+struct LegacyPublicKeysCache {
+    /// `kid -> certificado PEM`.
+    keys: Option<HashMap<String, String>>,
+    expires_at: Instant,
+}
+
+/// Claims de los tokens legacy de Identity Toolkit REST.
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyIdentityToolkitClaims {
+    pub iss: String,
+    pub aud: String,
+    pub iat: i64,
+    pub exp: i64,
+    pub user_id: String,
+    #[serde(default)]
+    pub email: Option<String>,
+    #[serde(default)]
+    pub sign_in_provider: Option<String>,
+    #[serde(default)]
+    pub verified: Option<bool>,
+    #[serde(default)]
+    pub display_name: Option<String>,
+}
+
 // ─── FirebaseVerifier ─────────────────────────────────────────────────────
 
 /// Verificador de Firebase ID Tokens.
@@ -236,14 +273,22 @@ pub struct FirebaseVerifier {
     project_id: Arc<String>,
     /// Issuer esperado: `https://securetoken.google.com/<project_id>`.
     issuer: Arc<String>,
+    /// Issuer de los tokens legacy de Identity Toolkit REST.
+    legacy_issuer: Arc<String>,
     /// URL del JWKS. Configurable para tests con `new_with_url`.
     jwks_url: Arc<String>,
+    /// URL de certificados legacy. Configurable para tests con `new_with_urls`.
+    legacy_public_keys_url: Arc<String>,
     /// Cliente HTTP reutilizable. `reqwest::Client` ya envuelve un Arc internamente.
     http: reqwest::Client,
     /// Cache de claves publicas con TTL.
     cache: Arc<RwLock<JwksCache>>,
+    /// Cache de certificados legacy con TTL.
+    legacy_cache: Arc<RwLock<LegacyPublicKeysCache>>,
     /// Mutex para serializar refrescos del cache (evita thundering herd).
     refresh_lock: Arc<Mutex<()>>,
+    /// Mutex para serializar refrescos de certificados legacy.
+    legacy_refresh_lock: Arc<Mutex<()>>,
 }
 
 impl FirebaseVerifier {
@@ -254,12 +299,29 @@ impl FirebaseVerifier {
     /// indicar un sistema sin TLS roots). Aceptable porque ocurre solo al
     /// arrancar el servidor — fallo rapido es preferible a degradacion.
     pub fn new(project_id: String) -> Self {
-        Self::new_with_url(project_id, JWKS_URL_DEFAULT.to_string())
+        Self::new_with_urls(
+            project_id,
+            JWKS_URL_DEFAULT.to_string(),
+            LEGACY_PUBLIC_KEYS_URL_DEFAULT.to_string(),
+        )
     }
 
     /// Constructor parametrizable. Usado en tests con `wiremock` para
     /// servir un JWKS mockeado en lugar del de Google.
     pub fn new_with_url(project_id: String, jwks_url: String) -> Self {
+        Self::new_with_urls(
+            project_id,
+            jwks_url,
+            LEGACY_PUBLIC_KEYS_URL_DEFAULT.to_string(),
+        )
+    }
+
+    /// Constructor parametrizable de ambas fuentes de claves.
+    pub fn new_with_urls(
+        project_id: String,
+        jwks_url: String,
+        legacy_public_keys_url: String,
+    ) -> Self {
         let issuer = format!("https://securetoken.google.com/{project_id}");
         let http = reqwest::Client::builder()
             .timeout(JWKS_FETCH_TIMEOUT)
@@ -269,7 +331,9 @@ impl FirebaseVerifier {
         Self {
             project_id: Arc::new(project_id),
             issuer: Arc::new(issuer),
+            legacy_issuer: Arc::new("https://identitytoolkit.google.com/".to_string()),
             jwks_url: Arc::new(jwks_url),
+            legacy_public_keys_url: Arc::new(legacy_public_keys_url),
             http,
             cache: Arc::new(RwLock::new(JwksCache {
                 set: None,
@@ -277,7 +341,12 @@ impl FirebaseVerifier {
                 // un fetch del JWKS. Es el comportamiento deseado.
                 expires_at: Instant::now(),
             })),
+            legacy_cache: Arc::new(RwLock::new(LegacyPublicKeysCache {
+                keys: None,
+                expires_at: Instant::now(),
+            })),
             refresh_lock: Arc::new(Mutex::new(())),
+            legacy_refresh_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -306,21 +375,40 @@ impl FirebaseVerifier {
             AppError::Unauthorized
         })?;
 
-        // 2. Buscar la JWK en cache. Si no esta y el cache esta poblado,
-        //    forzar UN unico refresh y reintentar (las claves rotaron).
-        let jwk = match self.find_jwk(&kid).await? {
-            Some(j) => j,
-            None => {
-                tracing::info!(kid = %kid, "kid no en cache JWKS, forzando refresh");
-                self.refresh_jwks().await?;
-                self.find_jwk(&kid).await?.ok_or_else(|| {
-                    tracing::warn!(kid = %kid, "kid no encontrado en JWKS de Google tras refresh");
-                    AppError::Unauthorized
-                })?
-            }
-        };
+        // 2. Buscar primero el formato moderno de Firebase Secure Token.
+        if let Some(jwk) = self.find_jwk(&kid).await? {
+            return self.verify_secure_token(id_token, &jwk).await;
+        }
 
-        // 3. Construir DecodingKey desde la JWK.
+        // 3. Si no existe en Secure Token, probar el firmante legacy de
+        //    Identity Toolkit. El admin web REST de este proyecto llega por
+        //    este camino (`kid` corto, issuer `identitytoolkit.google.com`).
+        if let Some(cert_pem) = self.find_legacy_cert(&kid).await? {
+            return self.verify_legacy_identity_toolkit_token(id_token, &cert_pem);
+        }
+
+        // 4. Las claves pueden haber rotado antes de caducar la cache: forzar
+        //    un refresh de ambas fuentes y reintentar una vez.
+        tracing::info!(kid = %kid, "kid no en caches de Google, forzando refresh");
+        self.refresh_jwks(true).await?;
+        if let Some(jwk) = self.find_jwk(&kid).await? {
+            return self.verify_secure_token(id_token, &jwk).await;
+        }
+        self.refresh_legacy_public_keys(true).await?;
+        if let Some(cert_pem) = self.find_legacy_cert(&kid).await? {
+            return self.verify_legacy_identity_toolkit_token(id_token, &cert_pem);
+        }
+
+        tracing::warn!(kid = %kid, "kid no encontrado en Secure Token ni Identity Toolkit");
+        Err(AppError::Unauthorized)
+    }
+
+    async fn verify_secure_token(
+        &self,
+        id_token: &str,
+        jwk: &Jwk,
+    ) -> Result<FirebaseClaims, AppError> {
+        // Construir DecodingKey desde la JWK.
         //    Por seguridad solo aceptamos RSA — Firebase usa RS256, nada mas.
         let decoding_key = match &jwk.algorithm {
             AlgorithmParameters::RSA(rsa) => DecodingKey::from_rsa_components(&rsa.n, &rsa.e)
@@ -331,7 +419,7 @@ impl FirebaseVerifier {
             }
         };
 
-        // 4. Configurar la validacion estricta:
+        // Configurar la validacion estricta:
         //    - Algoritmo PINNED a RS256 (no HS256, no none — protege contra alg confusion).
         //    - audience = project_id.
         //    - issuer = securetoken.google.com/<project_id>.
@@ -343,14 +431,79 @@ impl FirebaseVerifier {
         validation.set_required_spec_claims(&["exp", "iat", "aud", "iss", "sub"]);
         validation.leeway = CLOCK_SKEW_SECS;
 
-        // 5. Decodificar y validar firma + claims.
+        // Decodificar y validar firma + claims.
         let data = decode::<FirebaseClaims>(id_token, &decoding_key, &validation).map_err(|e| {
             tracing::warn!(error = %e, "Validacion Firebase ID Token fallo");
             AppError::Unauthorized
         })?;
         let claims = data.claims;
 
-        // 6. Comprobaciones manuales que `jsonwebtoken` no hace:
+        self.validar_claims_comunes(&claims)?;
+        Ok(claims)
+    }
+
+    fn verify_legacy_identity_toolkit_token(
+        &self,
+        id_token: &str,
+        cert_pem: &str,
+    ) -> Result<FirebaseClaims, AppError> {
+        let decoding_key = DecodingKey::from_rsa_pem(cert_pem.as_bytes()).map_err(|e| {
+            tracing::warn!(error = %e, "Certificado legacy Identity Toolkit malformado");
+            AppError::Unauthorized
+        })?;
+
+        let mut validation = Validation::new(Algorithm::RS256);
+        validation.set_audience(&[self.project_id.as_str()]);
+        validation.set_issuer(&[self.legacy_issuer.as_str()]);
+        validation.set_required_spec_claims(&["exp", "iat", "aud", "iss"]);
+        validation.leeway = CLOCK_SKEW_SECS;
+
+        let data = decode::<LegacyIdentityToolkitClaims>(id_token, &decoding_key, &validation)
+            .map_err(|e| {
+                tracing::warn!(error = %e, "Validacion legacy Identity Toolkit token fallo");
+                AppError::Unauthorized
+            })?;
+
+        let legacy = data.claims;
+        if legacy.user_id.trim().is_empty() {
+            tracing::warn!("Legacy Identity Toolkit token con `user_id` vacio");
+            return Err(AppError::Unauthorized);
+        }
+
+        let provider = legacy.sign_in_provider.ok_or_else(|| {
+            tracing::warn!("Legacy Identity Toolkit token sin `sign_in_provider`");
+            AppError::Unauthorized
+        })?;
+
+        let mut identities = HashMap::new();
+        if let Some(email) = legacy.email.as_ref() {
+            identities.insert("email".to_string(), serde_json::json!([email]));
+        }
+
+        let claims = FirebaseClaims {
+            iss: legacy.iss,
+            aud: legacy.aud,
+            sub: legacy.user_id,
+            iat: legacy.iat,
+            exp: legacy.exp,
+            auth_time: legacy.iat,
+            email: legacy.email,
+            email_verified: legacy.verified,
+            name: legacy.display_name,
+            picture: None,
+            firebase: FirebaseProviderInfo {
+                sign_in_provider: provider,
+                identities,
+                tenant: None,
+            },
+        };
+
+        self.validar_claims_comunes(&claims)?;
+        Ok(claims)
+    }
+
+    fn validar_claims_comunes(&self, claims: &FirebaseClaims) -> Result<(), AppError> {
+        // Comprobaciones manuales que `jsonwebtoken` no hace:
         //    - `sub` no vacio (es el firebase_uid).
         //    - `auth_time` no en el futuro (con tolerancia de reloj).
         if claims.sub.trim().is_empty() {
@@ -362,23 +515,36 @@ impl FirebaseVerifier {
             tracing::warn!(auth_time = claims.auth_time, now, "auth_time en el futuro");
             return Err(AppError::Unauthorized);
         }
-
-        Ok(claims)
+        Ok(())
     }
 
     /// Busca una `Jwk` por `kid` en el cache, refrescando si esta caducado.
     async fn find_jwk(&self, kid: &str) -> Result<Option<Jwk>, AppError> {
         if self.is_expired().await {
-            self.refresh_jwks().await?;
+            self.refresh_jwks(false).await?;
         }
         let cache = self.cache.read().await;
         Ok(cache.set.as_ref().and_then(|set| set.find(kid).cloned()))
+    }
+
+    /// Busca un certificado legacy por `kid` en cache, refrescando si caduca.
+    async fn find_legacy_cert(&self, kid: &str) -> Result<Option<String>, AppError> {
+        if self.is_legacy_expired().await {
+            self.refresh_legacy_public_keys(false).await?;
+        }
+        let cache = self.legacy_cache.read().await;
+        Ok(cache.keys.as_ref().and_then(|keys| keys.get(kid).cloned()))
     }
 
     /// `true` si el cache esta vacio o ha caducado.
     async fn is_expired(&self) -> bool {
         let cache = self.cache.read().await;
         cache.set.is_none() || Instant::now() >= cache.expires_at
+    }
+
+    async fn is_legacy_expired(&self) -> bool {
+        let cache = self.legacy_cache.read().await;
+        cache.keys.is_none() || Instant::now() >= cache.expires_at
     }
 
     /// Refresca el cache de JWKS desde Google.
@@ -389,11 +555,11 @@ impl FirebaseVerifier {
     /// herd). Con el `refresh_lock`, solo la primera entra; las demas esperan
     /// el guard, y al entrar comprueban de nuevo `is_expired()`: si el primero
     /// ya refresco, no vuelven a fetchear.
-    async fn refresh_jwks(&self) -> Result<(), AppError> {
+    async fn refresh_jwks(&self, force: bool) -> Result<(), AppError> {
         let _guard = self.refresh_lock.lock().await;
 
         // Double-check: el cache puede haberse refrescado mientras esperabamos.
-        if !self.is_expired().await {
+        if !force && !self.is_expired().await {
             return Ok(());
         }
 
@@ -427,6 +593,57 @@ impl FirebaseVerifier {
         cache.set = Some(set);
         cache.expires_at = Instant::now() + ttl;
         tracing::info!(ttl_secs = ttl.as_secs(), "JWKS de Firebase refrescado");
+        Ok(())
+    }
+
+    async fn refresh_legacy_public_keys(&self, force: bool) -> Result<(), AppError> {
+        let _guard = self.legacy_refresh_lock.lock().await;
+
+        if !force && !self.is_legacy_expired().await {
+            return Ok(());
+        }
+
+        let resp = self
+            .http
+            .get(self.legacy_public_keys_url.as_str())
+            .send()
+            .await
+            .map_err(|e| {
+                AppError::Internal(format!(
+                    "error de red al descargar certificados Identity Toolkit: {e}"
+                ))
+            })?
+            .error_for_status()
+            .map_err(|e| {
+                AppError::Internal(format!(
+                    "HTTP no-OK al descargar certificados Identity Toolkit: {e}"
+                ))
+            })?;
+
+        let ttl = resp
+            .headers()
+            .get(reqwest::header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_max_age)
+            .map(Duration::from_secs)
+            .unwrap_or(FALLBACK_TTL);
+
+        let body = resp.bytes().await.map_err(|e| {
+            AppError::Internal(format!(
+                "error leyendo cuerpo de certificados Identity Toolkit: {e}"
+            ))
+        })?;
+        let keys: HashMap<String, String> = serde_json::from_slice(&body).map_err(|e| {
+            AppError::Internal(format!("certificados Identity Toolkit malformados: {e}"))
+        })?;
+
+        let mut cache = self.legacy_cache.write().await;
+        cache.keys = Some(keys);
+        cache.expires_at = Instant::now() + ttl;
+        tracing::info!(
+            ttl_secs = ttl.as_secs(),
+            "Certificados Identity Toolkit refrescados"
+        );
         Ok(())
     }
 }
